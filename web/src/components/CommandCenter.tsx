@@ -1,0 +1,122 @@
+import { useState } from "react";
+import { api } from "../api";
+import { errorText, useLoad } from "../hooks";
+import { ACTIVE, type Connection, type Role, type RunDetail } from "../types";
+import { RunView } from "./RunView";
+import { VoiceButton } from "./VoiceButton";
+
+const EXAMPLES = [
+  "Create a Bank IT Service Desk project in JSM with incident and service request workflows, SLAs, queues and automation.",
+  "Jira mein ek Scrum project banao, usmein Epic, Story, Bug aur Task issue types configure karo aur Scrum board create karo.",
+  "Create a Confluence space for the Bank IT Service Desk and add IT policies, password reset guides and troubleshooting articles.",
+  "JSM ke tamam incidents ka Jira dashboard banao aur SLA reports add karo.",
+];
+
+interface Props {
+  connection: Connection | null;
+  role: Role;
+  runId: string | null;
+  draft: string;
+  setDraft: (text: string) => void;
+  onRunId: (id: string | null) => void;
+  speak: (text: string) => void;
+}
+
+export function CommandCenter({ connection, role, runId, draft, setDraft, onRunId, speak }: Props) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [tick, setTick] = useState(0); // bumping it restarts live polling
+  const { data: run, setData: setRun } = useLoad<RunDetail | null>(
+    () => (runId ? api.run(runId) : Promise.resolve(null)),
+    [runId, tick],
+    (r) => !!r && ACTIVE.includes(r.status),
+  );
+
+  const canRevise = run && ["needs_clarification", "blocked", "awaiting_approval"].includes(run.status);
+  const disabled = !connection || busy || role === "viewer" || (!!run && ACTIVE.includes(run.status));
+
+  async function submit(fn: () => Promise<RunDetail>) {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await fn();
+      setDraft("");
+      onRunId(result.id);
+      setRun(result);
+      setTick((t) => t + 1);
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function send() {
+    const text = draft.trim();
+    if (!text || !connection) return;
+    if (run && canRevise) void submit(() => api.clarify(run.id, text));
+    else void submit(() => api.createRun(connection.id, text));
+  }
+
+  // Re-poll when an action (approve / clarify) moves the run back into an active state.
+  function onRunChange(updated: RunDetail) {
+    setRun(updated);
+    setTick((t) => t + 1);
+  }
+
+  return (
+    <div className="grid-cmd">
+      <div className="card stack">
+        <div className="row" style={{ justifyContent: "space-between" }}>
+          <h2 style={{ margin: 0 }}>AI command</h2>
+          {run && <button className="link" onClick={() => onRunId(null)}>New command</button>}
+        </div>
+        {!connection && <div className="alert warn">Connect and test an Atlassian site first (Settings).</div>}
+
+        <div className="chat" aria-live="polite">
+          {(run?.conversation ?? []).map((t, n) => (
+            <div key={n} className={`bubble ${t.role}`}>{t.content}</div>
+          ))}
+          {!run && <div className="muted">Describe what to build in English, Urdu or Roman Urdu — by typing or with the microphone. You will review the plan before anything changes.</div>}
+        </div>
+
+        <label>
+          <span className="sr-only" style={{ position: "absolute", left: -9999 }}>Command</span>
+          <textarea
+            value={draft}
+            placeholder={canRevise ? "Answer or ask for changes to the plan…" : "e.g. Create a Scrum project for the mobile team with a board and two sprints"}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) send(); }}
+            disabled={!connection || role === "viewer"}
+          />
+        </label>
+        <div className="row">
+          <VoiceButton
+            disabled={disabled}
+            onError={setError}
+            onRecorded={(audio) => connection && void submit(() => api.voiceCommand(connection.id, audio))}
+          />
+          <button className="primary" onClick={send} disabled={disabled || !draft.trim()}>
+            {canRevise ? "Send reply" : "Plan it"}
+          </button>
+          <span className="small muted">Ctrl+Enter to send</span>
+        </div>
+        {error && <div className="alert err">{error}</div>}
+        {!run && (
+          <div>
+            <div className="small muted" style={{ marginBottom: 6 }}>Try:</div>
+            <div className="chips">
+              {EXAMPLES.map((e) => <button key={e} className="chip" onClick={() => setDraft(e)}>{e.slice(0, 70)}…</button>)}
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div>
+        {run ? <RunView run={run} role={role} onChange={onRunChange} speak={speak} /> : (
+          <div className="card muted">The execution plan, approvals, live agent status and the verified report appear here.</div>
+        )}
+      </div>
+    </div>
+  );
+}

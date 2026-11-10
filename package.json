@@ -1,0 +1,13 @@
+{
+  "name": "atlassian-ai-agent",
+  "private": true,
+  "description": "Convenience scripts so the API and dashboard can be run from the project root.",
+  "scripts": {
+    "start": "node scripts/dev.mjs",
+    "api": ".venv\\Scripts\\uvicorn app.main:app --reload --port 8765",
+    "dev": "npm --prefix web run dev",
+    "build": "npm --prefix web run build",
+    "preview": "npm --prefix web run preview",
+    "setup": "npm --prefix web install"
+  }
+}
