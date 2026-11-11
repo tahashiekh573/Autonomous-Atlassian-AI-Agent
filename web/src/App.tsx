@@ -36,10 +36,6 @@ function greeting(): string {
   return h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
 }
 
-function Aurora() {
-  return <div className="aurora" aria-hidden="true"><span /><span /><span /></div>;
-}
-
 const ACTIVE_CONN_KEY = "aaa.connection";
 
 function remembered(): string | null {
@@ -119,7 +115,6 @@ export default function App() {
   if (bootError) {
     return (
       <div className="login">
-        <Aurora />
         <div className="card stack login-card" role="alert">
           <h1>Backend not reachable</h1>
           <p className="muted" style={{ margin: 0 }}>{bootError}</p>
@@ -129,14 +124,13 @@ export default function App() {
       </div>
     );
   }
-  if (!user) return <><Aurora /><Login onLogin={setUser} /></>;
+  if (!user) return <Login onLogin={setUser} />;
 
   const connection = connections.find((c) => c.id === activeId) ?? null;
   const useCommand = (text: string) => { setDraft(text); setRunId(null); setView("command"); };
 
   return (
     <div className="layout">
-      <Aurora />
       <nav className="sidebar" aria-label="Main">
         <div className="brand">
           <div className="brand-logo" aria-hidden="true"><Icon name="bolt" size={18} /></div>

@@ -185,3 +185,25 @@ svg { display: block; flex: none; }
 @media (pointer: coarse), (prefers-reduced-motion: reduce) {
   .fx-dot, .fx-ring, .fx-glow, .fx-ripple { display: none; }
 }
+
+/* =====================================================================
+   Animated background (BackgroundFX.tsx): aurora + panning grid + constellation canvas
+   ===================================================================== */
+.bg-fx { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
+.bg-fx .aurora { position: absolute; }
+.bg-canvas { position: absolute; inset: 0; display: block; }
+.bg-grid { position: absolute; inset: -64px; --grid: color-mix(in srgb, var(--accent) 13%, transparent);
+  background-image: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 64px 64px; animation: gridPan 24s linear infinite;
+  -webkit-mask-image: radial-gradient(ellipse 75% 65% at 50% 40%, #000 20%, transparent 75%);
+  mask-image: radial-gradient(ellipse 75% 65% at 50% 40%, #000 20%, transparent 75%); }
+@keyframes gridPan { to { transform: translate(64px, 64px); } }
+/* the aurora now has livelier, colour-shifting blobs */
+.bg-fx .aurora span { animation-name: drift, hueShift; animation-duration: 26s, 18s; animation-timing-function: ease-in-out, linear;
+  animation-iteration-count: infinite, infinite; animation-direction: alternate, normal; }
+.bg-fx .aurora span:nth-child(2) { animation-duration: 32s, 22s; }
+.bg-fx .aurora span:nth-child(3) { animation-duration: 38s, 26s; }
+@keyframes hueShift { to { filter: blur(80px) hue-rotate(360deg); } }
+.layout, .login { position: relative; z-index: 1; }
+/* let the animation show through the main canvas area */
+.sidebar { background: color-mix(in srgb, var(--surface) 82%, transparent); }
