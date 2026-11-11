@@ -132,3 +132,56 @@ svg { display: block; flex: none; }
   .login-hero h1 { font-size: 28px; }
   .features, .nav-label { display: none; }
 }
+
+/* =====================================================================
+   Cursor effects (CursorFX.tsx): only active with a mouse, never on touch
+   ===================================================================== */
+.fx-cursor, .fx-cursor * { cursor: none; }
+.fx-cursor input, .fx-cursor textarea, .fx-cursor [contenteditable="true"] { cursor: text; }
+.fx-cursor select { cursor: pointer; }
+.fx-cursor button:disabled { cursor: not-allowed; }
+
+.fx-dot, .fx-ring, .fx-glow { position: fixed; top: 0; left: 0; pointer-events: none; opacity: 0; will-change: transform; }
+.fx-dot { z-index: 10001; width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: 50%;
+  background: var(--accent); box-shadow: 0 0 10px var(--accent), 0 0 22px color-mix(in srgb, var(--accent) 60%, transparent);
+  transition: opacity .2s, width .2s var(--ease), height .2s var(--ease), margin .2s var(--ease); }
+/* the ring inverts what is under it (mix-blend difference) and grows into a lens over buttons */
+.fx-ring { z-index: 10000; width: 38px; height: 38px; margin: -19px 0 0 -19px; border-radius: 50%; border: 1.5px solid #fff;
+  mix-blend-mode: difference;
+  transition: opacity .2s, width .3s var(--ease), height .3s var(--ease), margin .3s var(--ease), background .3s, border-width .3s; }
+.fx-ring.hover { width: 64px; height: 64px; margin: -32px 0 0 -32px; background: #fff; border-width: 0; }
+.fx-ring.down { width: 28px; height: 28px; margin: -14px 0 0 -14px; }
+.fx-ring.hover.down { width: 50px; height: 50px; margin: -25px 0 0 -25px; }
+.fx-visible .fx-dot, .fx-visible .fx-ring { opacity: 1; }
+.fx-visible .fx-ring.hover ~ .fx-dot { width: 4px; height: 4px; margin: -2px 0 0 -2px; }
+.fx-visible .fx-dot.text, .fx-visible .fx-ring.text { opacity: 0; }
+
+/* soft spotlight trailing the pointer, behind the (translucent) UI */
+.fx-glow { z-index: 0; width: 720px; height: 720px; margin: -360px 0 0 -360px; border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--accent-2) 26%, transparent) 0%, color-mix(in srgb, var(--accent) 12%, transparent) 35%, transparent 65%);
+  transition: opacity .5s; }
+.fx-visible .fx-glow { opacity: .85; }
+:root[data-theme="dark"] .fx-visible .fx-glow, :root[data-theme="dark"].fx-visible .fx-glow { opacity: 1; }
+
+/* hovered card lights up under the pointer (--mx/--my set by CursorFX) */
+.fx-cursor .card { background:
+  radial-gradient(480px circle at var(--mx, -999px) var(--my, -999px), color-mix(in srgb, var(--accent) 18%, transparent), transparent 45%),
+  var(--surface); }
+.fx-cursor .op:not(.failed) { background:
+  radial-gradient(320px circle at var(--mx, -999px) var(--my, -999px), color-mix(in srgb, var(--accent) 9%, transparent), transparent 50%),
+  var(--surface-solid); }
+.fx-cursor .card:hover { border-color: color-mix(in srgb, var(--accent) 35%, var(--border)); }
+.fx-cursor .glow-card:hover { border-color: transparent; }
+
+/* magnetic elements follow the pointer smoothly */
+.fx-cursor button.primary, .fx-cursor .icon-btn, .fx-cursor .mic, .fx-cursor .brand-logo, .fx-cursor .chip {
+  transition: transform .25s cubic-bezier(.2, .9, .3, 1.4), box-shadow .2s var(--ease), background .2s var(--ease), filter .2s; }
+
+/* click ripple */
+.fx-ripple { position: fixed; z-index: 9999; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%; pointer-events: none;
+  border: 2px solid var(--accent); box-shadow: 0 0 12px var(--accent); animation: fxRipple .6s var(--ease) forwards; }
+@keyframes fxRipple { to { transform: scale(6); opacity: 0; } }
+
+@media (pointer: coarse), (prefers-reduced-motion: reduce) {
+  .fx-dot, .fx-ring, .fx-glow, .fx-ripple { display: none; }
+}
