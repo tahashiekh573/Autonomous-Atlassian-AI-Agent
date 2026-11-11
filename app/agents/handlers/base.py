@@ -52,8 +52,55 @@ class HandlerContext:
 
     @property
     def idempotency_label(self) -> str:
-        """Stable per (run, step): lets a retried step find what it already created."""
-        return f"aiagent-{self.run_id.replace('-', '')[:8]}-{self.op_id}"
+        """Stable per (run, step): lets a retried step find what it already created.
+
+        Stored only in an invisible issue property (never a label, name or description), so
+        nothing the agent builds carries an "AI agent" marker.
+        """
+        return f"run-{self.run_id.replace('-', '')[:8]}-{self.op_id}"
+
+
+STEP_PROPERTY = "automation.step"
+
+
+def free_name(base: str, taken: list[str]) -> str:
+    """`base`, or `base 2`, `base 3`, ... - the first name not already used (case-insensitive)."""
+    used = {t.strip().casefold() for t in taken}
+    if base.casefold() not in used:
+        return base
+    n = 2
+    while f"{base} {n}".casefold() in used:
+        n += 1
+    return f"{base} {n}"
+
+
+def step_marker(ctx: HandlerContext) -> list[dict[str, Any]]:
+    """`properties` for POST /issue: tags the new issue with this step, invisibly."""
+    return [{"key": STEP_PROPERTY, "value": {"step": ctx.idempotency_label}}]
+
+
+async def mark_issue(ctx: HandlerContext, key: str) -> None:
+    await ctx.jira.set_issue_property(key, STEP_PROPERTY, {"step": ctx.idempotency_label})
+
+
+async def find_step_issue(
+    ctx: HandlerContext, project_key: str, summary: str
+) -> dict[str, Any] | None:
+    """The issue this step already created (on retry), matched by summary and step property."""
+    recent = await ctx.jira.search(
+        f'project = "{project_key}" AND creator = currentUser() AND created >= -2d '
+        "ORDER BY created DESC",
+        fields=["summary"],
+        max_results=50,
+    )
+    wanted = summary.strip().casefold()
+    for issue in recent:
+        if str((issue.get("fields") or {}).get("summary") or "").strip().casefold() != wanted:
+            continue
+        value = await ctx.jira.get_issue_property(str(issue["key"]), STEP_PROPERTY)
+        if isinstance(value, dict) and value.get("step") == ctx.idempotency_label:
+            return issue
+    return None
 
 
 @dataclass

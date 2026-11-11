@@ -5,6 +5,7 @@ from typing import Any
 from app.clients.atlassian.http_client import AtlassianHttpClient
 from app.clients.atlassian.paths import seg
 from app.clients.jira.adf import to_adf
+from app.core.exceptions import AtlassianNotFoundError
 
 SERVICE = "jira"
 
@@ -12,9 +13,14 @@ SERVICE = "jira"
 class JiraIssuesMixin:
     _http: AtlassianHttpClient
 
-    async def create_issue(self, fields: dict[str, Any]) -> dict[str, Any]:
+    async def create_issue(
+        self, fields: dict[str, Any], properties: list[dict[str, Any]] | None = None
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {"fields": fields}
+        if properties:
+            payload["properties"] = properties
         body: dict[str, Any] = await self._http.request(
-            "POST", "/rest/api/3/issue", service=SERVICE, json={"fields": fields}
+            "POST", "/rest/api/3/issue", service=SERVICE, json=payload
         )
         return body
 
@@ -28,6 +34,25 @@ class JiraIssuesMixin:
         await self._http.request(
             "PUT", f"/rest/api/3/issue/{seg(key)}", service=SERVICE, json={"fields": fields}
         )
+
+    async def set_issue_property(self, key: str, prop: str, value: Any) -> None:
+        """Entity properties are invisible in the Jira UI (unlike labels)."""
+        await self._http.request(
+            "PUT",
+            f"/rest/api/3/issue/{seg(key)}/properties/{seg(prop)}",
+            service=SERVICE,
+            json=value,
+        )
+
+    async def get_issue_property(self, key: str, prop: str) -> Any:
+        """The property's value, or None when the issue does not have it."""
+        try:
+            body = await self._http.request(
+                "GET", f"/rest/api/3/issue/{seg(key)}/properties/{seg(prop)}", service=SERVICE
+            )
+        except AtlassianNotFoundError:
+            return None
+        return (body or {}).get("value")
 
     async def delete_issue(self, key: str) -> None:
         await self._http.request("DELETE", f"/rest/api/3/issue/{seg(key)}", service=SERVICE)

@@ -123,6 +123,7 @@ class StatefulSite:
         self.spaces: dict[str, dict[str, Any]] = {}
         self.pages: dict[str, dict[str, Any]] = {}
         self.labels: dict[str, list[str]] = {}
+        self.issue_props: dict[tuple[str, str], Any] = {}
         self._ids = 7000
         fake.add(
             "GET", "/rest/api/3/myself", json={"accountId": "acc-1", "displayName": "Ada Admin"}
@@ -143,6 +144,12 @@ class StatefulSite:
         fake.add_handler("POST", "/rest/api/3/search/jql", self._search)
         fake.add_handler("POST", "/rest/api/3/issue", self._create_issue)
         fake.add_pattern("GET", r"/rest/api/3/issue/([^/]+)", self._get_issue)
+        fake.add_pattern(
+            "GET", r"/rest/api/3/issue/([^/]+)/properties/([^/]+)", self._get_issue_prop
+        )
+        fake.add_pattern(
+            "PUT", r"/rest/api/3/issue/([^/]+)/properties/([^/]+)", self._put_issue_prop
+        )
         fake.add_pattern("DELETE", r"/rest/api/3/issue/([^/]+)", self._delete_issue)
         fake.add_handler("GET", "/wiki/api/v2/spaces", self._get_spaces)
         fake.add_handler("POST", "/wiki/rest/api/space", self._create_space)
@@ -183,14 +190,30 @@ class StatefulSite:
     def _search(self, request: httpx.Request) -> httpx.Response:
         jql = body(request)["jql"]
         label = re.search(r'labels = "([^"]+)"', jql)
+        project = re.search(r'project = "([^"]+)"', jql)
         issues = [
-            i for i in self.issues.values() if label and label.group(1) in i["fields"]["labels"]
+            i
+            for k, i in self.issues.items()
+            if (label and label.group(1) in i["fields"]["labels"])
+            or (project and k.startswith(f"{project.group(1)}-"))
         ]
         return httpx.Response(200, json={"issues": issues, "isLast": True})
 
+    def _get_issue_prop(self, _: httpx.Request, key: str, prop: str) -> httpx.Response:
+        if (key, prop) not in self.issue_props:
+            return httpx.Response(404, json={"errorMessages": ["Property not found"]})
+        return httpx.Response(200, json={"key": prop, "value": self.issue_props[(key, prop)]})
+
+    def _put_issue_prop(self, request: httpx.Request, key: str, prop: str) -> httpx.Response:
+        self.issue_props[(key, prop)] = body(request)
+        return httpx.Response(200, json={})
+
     def _create_issue(self, request: httpx.Request) -> httpx.Response:
-        fields = body(request)["fields"]
+        data = body(request)
+        fields = data["fields"]
         key = f"{fields['project']['key']}-{len(self.issues) + 1}"
+        for prop in data.get("properties") or []:
+            self.issue_props[(key, prop["key"])] = prop["value"]
         self.issues[key] = {
             "id": self._next(),
             "key": key,

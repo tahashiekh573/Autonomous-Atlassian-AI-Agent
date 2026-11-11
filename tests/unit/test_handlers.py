@@ -130,7 +130,10 @@ async def test_create_issue_is_idempotent_and_uses_adf(
     assert again.reused_existing and len(site.issues) == 1
     fields = body(fake_atlassian.calls_to("/rest/api/3/issue", "POST")[0])["fields"]
     assert fields["description"]["content"][1]["type"] == "bulletList"
-    assert "aiagent-run12345-s4" in fields["labels"]
+    # The retry marker is an invisible issue property - never a visible label.
+    assert not any("run" in label or "agent" in label for label in fields.get("labels", []))
+    props = body(fake_atlassian.calls_to("/rest/api/3/issue", "POST")[0])["properties"]
+    assert props == [{"key": "automation.step", "value": {"step": "run-run12345-s4"}}]
     verified = await VerificationAgent(ctx, 0).run(
         VerificationRequest(operation="jira.create_issue", params=params, outcome=first)
     )

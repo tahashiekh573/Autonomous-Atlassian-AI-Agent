@@ -9,7 +9,7 @@ import asyncio
 import uuid
 from typing import Any
 
-from app.agents.handlers.base import HandlerContext, HandlerResult, same_name
+from app.agents.handlers.base import HandlerContext, HandlerResult, free_name, same_name
 from app.agents.handlers.jira_common import require_project, resolve_field_id
 from app.agents.handlers.jira_config import find_global_status
 from app.core.exceptions import OperationError, OperationInputError
@@ -100,25 +100,33 @@ async def configure_workflow_scheme(
             reused_existing=True,
         )
 
-    scheme_name = (
-        f"{p.project_key}: {p.scheme_name or 'ITSM workflow scheme'} ({ctx.idempotency_label})"
-    )
+    base_name = f"{p.project_key}: {p.scheme_name or 'ITSM workflow scheme'}"
+    existing = await ctx.jira.list_workflow_schemes()
+
+    def same_setup(s: dict[str, Any]) -> bool:
+        mappings = {str(k): str(v) for k, v in (s.get("issueTypeMappings") or {}).items()}
+        return mappings == new_mappings and str(s.get("defaultWorkflow") or "jira") == new_default
+
+    # Reuse a scheme with this name and identical mappings (e.g. a retried step); otherwise
+    # create one under the first free plain name - no run tags in what users see.
     scheme = next(
         (
             s
-            for s in await ctx.jira.list_workflow_schemes()
-            if same_name(s.get("name"), scheme_name)
+            for s in existing
+            if str(s.get("name") or "").casefold().startswith(base_name.casefold())
+            and same_setup(s)
         ),
         None,
     ) or await ctx.jira.create_workflow_scheme(
         {
-            "name": scheme_name,
+            "name": free_name(base_name, [str(s.get("name") or "") for s in existing]),
             "description": f"Workflows for {p.project_key}",
             "defaultWorkflow": new_default,
             "issueTypeMappings": new_mappings,
         }
     )
     scheme_id = str(scheme["id"])
+    scheme_name = str(scheme.get("name") or base_name)
 
     previous = str(current_ref["id"]) if current_ref else None
     has_issues = await ctx.jira.approximate_count(f"project = {p.project_key}") > 0

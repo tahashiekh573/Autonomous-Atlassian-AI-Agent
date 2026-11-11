@@ -56,7 +56,7 @@ class UpdatePageParams(Params):
     body_storage: str | None = None
     append_storage: str | None = Field(default=None, description="XHTML appended to the page")
     labels: list[str] = Field(default_factory=list)
-    version_message: str = "Updated by Atlassian AI Agent"
+    version_message: str = ""
 
 
 class AddLabelsParams(Params):

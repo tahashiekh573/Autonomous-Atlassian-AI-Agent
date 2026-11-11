@@ -202,7 +202,7 @@ def build_rule(
     rule: dict[str, Any] = {
         "name": p.name,
         "state": "ENABLED" if p.enabled else "DISABLED",
-        "description": "Created by Atlassian AI Agent",
+        "description": "",
         "canOtherRuleTrigger": False,
         "notifyOnError": "FIRSTERROR",
         # Required: without it Jira answers 400 "request body could not be parsed".

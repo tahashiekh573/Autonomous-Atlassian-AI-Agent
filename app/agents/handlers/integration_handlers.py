@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from app.agents.handlers.base import HandlerContext, HandlerResult
+from app.agents.handlers.base import HandlerContext, HandlerResult, find_step_issue, step_marker
 from app.agents.handlers.confluence_handlers import page_url, require_space
 from app.agents.handlers.jira_common import browse_url, require_project
 from app.agents.handlers.jira_issues import link_issues_with
@@ -42,26 +42,26 @@ async def link_incident_to_issue(
 async def create_dev_issue_from_incident(
     ctx: HandlerContext, p: CreateDevIssueFromIncidentParams
 ) -> HandlerResult:
-    label = ctx.idempotency_label
-    existing = await ctx.jira.search(f'labels = "{label}"', fields=["summary"], max_results=1)
     incident = await ctx.jira.get_issue(p.incident_key, fields="summary,description,priority")
     fields = incident["fields"]
+    summary = f"[{p.incident_key}] {fields.get('summary')}"[:255]
+    existing = await find_step_issue(ctx, p.target_project_key, summary)
     if existing:
-        key = str(existing[0]["key"])
+        key = str(existing["key"])
         reused = True
     else:
         await require_project(ctx, p.target_project_key)
         new_fields: dict[str, Any] = {
             "project": {"key": p.target_project_key},
             "issuetype": {"name": p.issue_type},
-            "summary": f"[{p.incident_key}] {fields.get('summary')}"[:255],
+            "summary": summary,
             "description": fields.get("description")
             or to_adf(f"Raised from incident {p.incident_key}."),
-            "labels": [label, "from-incident"],
+            "labels": ["from-incident"],
         }
         if fields.get("priority"):
             new_fields["priority"] = {"name": fields["priority"]["name"]}
-        key = str((await ctx.jira.create_issue(new_fields))["key"])
+        key = str((await ctx.jira.create_issue(new_fields, properties=step_marker(ctx)))["key"])
         reused = False
     await link_issues_with(ctx, p.incident_key, key, p.link_type)
     url = browse_url(ctx, key)
@@ -88,7 +88,7 @@ async def _append_macro(
         str(page["title"]),
         f"{body}<h2>{heading}</h2>{macro}",
         version,
-        "Linked Jira issues (Atlassian AI Agent)",
+        "Linked Jira issues",
     )
     return True
 

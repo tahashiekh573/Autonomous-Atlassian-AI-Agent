@@ -2,7 +2,14 @@
 
 from typing import Any
 
-from app.agents.handlers.base import CheckResult, HandlerContext, HandlerResult, same_name
+from app.agents.handlers.base import (
+    CheckResult,
+    HandlerContext,
+    HandlerResult,
+    find_step_issue,
+    same_name,
+    step_marker,
+)
 from app.agents.handlers.jira_common import browse_url, require_project, resolve_field_id
 from app.clients.jira.adf import to_adf
 from app.core.exceptions import AtlassianNotFoundError, OperationInputError
@@ -60,23 +67,22 @@ async def check_create_issue(ctx: HandlerContext, p: CreateIssueParams) -> Check
 
 
 async def create_issue(ctx: HandlerContext, p: CreateIssueParams) -> HandlerResult:
-    label = ctx.idempotency_label
-    existing = await ctx.jira.search(f'labels = "{label}"', fields=["summary"], max_results=1)
-    if existing:
-        key = str(existing[0]["key"])
-        return _issue_result(ctx, key, existing[0].get("id"), p.summary, reused=True)
     await require_project(ctx, p.project_key)
+    existing = await find_step_issue(ctx, p.project_key, p.summary)
+    if existing:
+        key = str(existing["key"])
+        return _issue_result(ctx, key, existing.get("id"), p.summary, reused=True)
     fields = await _common_fields(ctx, p)
     fields.update(
         {
             "project": {"key": p.project_key},
             "issuetype": {"name": p.issue_type},
-            "labels": [*p.labels, label],
+            "labels": list(p.labels),
         }
     )
     if p.assignee_account_id:
         fields["assignee"] = {"accountId": p.assignee_account_id}
-    created = await ctx.jira.create_issue(fields)
+    created = await ctx.jira.create_issue(fields, properties=step_marker(ctx))
     return _issue_result(ctx, str(created["key"]), created.get("id"), p.summary, reused=False)
 
 

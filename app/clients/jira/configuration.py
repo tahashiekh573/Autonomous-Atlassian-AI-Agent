@@ -45,6 +45,14 @@ class JiraConfigurationMixin:
         )
         return str(body["issueTypeSchemeId"])
 
+    async def list_issue_type_scheme_names(self) -> list[str]:
+        return [
+            str(item.get("name") or "")
+            async for item in self._http.paginate_offset(
+                "/rest/api/3/issuetypescheme", service=SERVICE
+            )
+        ]
+
     async def assign_issue_type_scheme(self, scheme_id: str, project_id: str) -> None:
         await self._http.request(
             "PUT",

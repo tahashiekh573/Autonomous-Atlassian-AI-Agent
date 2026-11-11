@@ -3,7 +3,13 @@ priorities, statuses."""
 
 from typing import Any
 
-from app.agents.handlers.base import CheckResult, HandlerContext, HandlerResult, same_name
+from app.agents.handlers.base import (
+    CheckResult,
+    HandlerContext,
+    HandlerResult,
+    free_name,
+    same_name,
+)
 from app.agents.handlers.jira_common import (
     invalidate_fields,
     require_project,
@@ -102,7 +108,7 @@ async def configure_issue_types(ctx: HandlerContext, p: ConfigureIssueTypesParam
         match = next((t for t in types if same_name(t.get("name"), name)), None)
         if match is None:
             level = -1 if name.casefold() in SUBTASK_NAMES else 0
-            match = await ctx.jira.create_issue_type(name, f"{name} (created by AI agent)", level)
+            match = await ctx.jira.create_issue_type(name, "", level)
             created.append(name)
         ids.append(str(match["id"]))
     names = [n.casefold() for n in p.issue_types]
@@ -117,7 +123,9 @@ async def configure_issue_types(ctx: HandlerContext, p: ConfigureIssueTypesParam
             reused_existing=True,
         )
     scheme_id = await ctx.jira.create_issue_type_scheme(
-        f"{p.project_key}: Issue Type Scheme ({ctx.idempotency_label})",
+        free_name(
+            f"{p.project_key}: Issue Type Scheme", await ctx.jira.list_issue_type_scheme_names()
+        ),
         f"Issue types for {p.project_key}",
         ids,
         default_id,

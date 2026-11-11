@@ -2,7 +2,14 @@
 
 from typing import Any
 
-from app.agents.handlers.base import CheckResult, HandlerContext, HandlerResult, same_name
+from app.agents.handlers.base import (
+    CheckResult,
+    HandlerContext,
+    HandlerResult,
+    find_step_issue,
+    mark_issue,
+    same_name,
+)
 from app.agents.handlers.jira_common import project_issue_type_id, require_project
 from app.agents.handlers.jira_projects import check_project_key, create_project_with
 from app.clients.jsm.types import ServiceDesk
@@ -190,11 +197,10 @@ async def add_customers(ctx: HandlerContext, p: AddCustomersParams) -> HandlerRe
 
 
 async def create_request(ctx: HandlerContext, p: CreateRequestParams) -> HandlerResult:
-    label = ctx.idempotency_label
     desk = await resolve_service_desk(ctx, p.service_desk)
-    existing = await ctx.jira.search(f'labels = "{label}"', fields=["summary"], max_results=1)
+    existing = await find_step_issue(ctx, desk.project_key, p.summary)
     if existing:
-        key = str(existing[0]["key"])
+        key = str(existing["key"])
         return HandlerResult(
             message=f"Request {key} already raised.", outputs={"key": key}, reused_existing=True
         )
@@ -228,7 +234,7 @@ async def create_request(ctx: HandlerContext, p: CreateRequestParams) -> Handler
         payload["raiseOnBehalfOf"] = p.raise_on_behalf_of
     created = await ctx.jsm.create_request(payload)
     key = str(created["issueKey"])
-    await ctx.jira.update_issue(key, {"labels": [label]})  # makes retries idempotent
+    await mark_issue(ctx, key)  # invisible property: makes retries idempotent
     if description_as_comment:
         await ctx.jira.add_comment(key, p.description)
     url = f"{ctx.site_url}/browse/{key}"
