@@ -28,7 +28,7 @@ SERVICE_PRINCIPAL = Principal(
     user_id="service", email="api-key", role="admin", display_name="API key"
 )
 DEV_PRINCIPAL = Principal(
-    user_id="dev", email="dev@local", role="admin", display_name="Local developer"
+    user_id="dev", email="dev@local", role="admin", display_name="TAHA AI Developer"
 )
 
 
