@@ -1,18 +1,14 @@
 import { useEffect, useRef } from "react";
 
 /**
- * Modern cursor effects: a precise dot, a trailing blend-mode ring that grows over interactive
- * elements, a soft spotlight that follows the pointer, a glow on the hovered card, magnetic
- * buttons and a click ripple. Disabled on touch devices and for reduced motion.
+ * Pointer effects (the native mouse cursor is kept): a soft spotlight that follows the pointer,
+ * a glow on the hovered card, magnetic buttons and a click ripple. Disabled on touch devices
+ * and for reduced motion.
  */
-const INTERACTIVE = "a, button, [role='button'], summary, .chip, .nav-item, label";
-const TEXT = "input, textarea, select, [contenteditable='true']";
 const SPOT = ".card, .op:not(.failed)";
 const MAGNETIC = "button.primary, .icon-btn, .mic, .brand-logo, .chip";
 
 export function CursorFX() {
-  const dot = useRef<HTMLDivElement>(null);
-  const ring = useRef<HTMLDivElement>(null);
   const glow = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -22,7 +18,7 @@ export function CursorFX() {
     const root = document.documentElement;
     root.classList.add("fx-cursor");
 
-    let x = -100, y = -100, rx = x, ry = y, gx = x, gy = y, raf = 0;
+    let x = -100, y = -100, gx = x, gy = y, raf = 0;
     let spot: HTMLElement | null = null;
     let magnet: HTMLElement | null = null;
 
@@ -35,16 +31,11 @@ export function CursorFX() {
       x = e.clientX;
       y = e.clientY;
       if (!root.classList.contains("fx-visible")) {
-        rx = gx = x;
-        ry = gy = y;
+        gx = x;
+        gy = y;
         root.classList.add("fx-visible");
       }
       const target = e.target instanceof Element ? e.target : null;
-
-      const typing = !!target?.closest(TEXT);
-      ring.current?.classList.toggle("text", typing);
-      dot.current?.classList.toggle("text", typing);
-      ring.current?.classList.toggle("hover", !typing && !!target?.closest(INTERACTIVE));
 
       const card = target?.closest<HTMLElement>(SPOT) ?? null;
       if (card !== spot) {
@@ -70,7 +61,6 @@ export function CursorFX() {
     };
 
     const down = (e: PointerEvent) => {
-      ring.current?.classList.add("down");
       const ripple = document.createElement("span");
       ripple.className = "fx-ripple";
       ripple.style.left = `${e.clientX}px`;
@@ -78,16 +68,11 @@ export function CursorFX() {
       ripple.addEventListener("animationend", () => ripple.remove());
       document.body.appendChild(ripple);
     };
-    const up = () => ring.current?.classList.remove("down");
     const leave = () => { root.classList.remove("fx-visible"); release(); };
 
     const tick = () => {
-      rx += (x - rx) * 0.2;
-      ry += (y - ry) * 0.2;
       gx += (x - gx) * 0.07;
       gy += (y - gy) * 0.07;
-      if (dot.current) dot.current.style.transform = `translate3d(${x}px, ${y}px, 0)`;
-      if (ring.current) ring.current.style.transform = `translate3d(${rx}px, ${ry}px, 0)`;
       if (glow.current) glow.current.style.transform = `translate3d(${gx}px, ${gy}px, 0)`;
       raf = requestAnimationFrame(tick);
     };
@@ -95,13 +80,11 @@ export function CursorFX() {
 
     window.addEventListener("pointermove", move, { passive: true });
     window.addEventListener("pointerdown", down, { passive: true });
-    window.addEventListener("pointerup", up, { passive: true });
     document.addEventListener("mouseleave", leave);
     return () => {
       cancelAnimationFrame(raf);
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerdown", down);
-      window.removeEventListener("pointerup", up);
       document.removeEventListener("mouseleave", leave);
       release();
       root.classList.remove("fx-cursor", "fx-visible");
@@ -111,8 +94,6 @@ export function CursorFX() {
   return (
     <div aria-hidden="true">
       <div className="fx-glow" ref={glow} />
-      <div className="fx-ring" ref={ring} />
-      <div className="fx-dot" ref={dot} />
     </div>
   );
 }

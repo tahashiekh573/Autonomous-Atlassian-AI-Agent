@@ -134,27 +134,10 @@ svg { display: block; flex: none; }
 }
 
 /* =====================================================================
-   Cursor effects (CursorFX.tsx): only active with a mouse, never on touch
+   Pointer effects (CursorFX.tsx): spotlight, card glow, magnetic buttons, ripple; mouse only
    ===================================================================== */
-.fx-cursor, .fx-cursor * { cursor: none; }
-.fx-cursor input, .fx-cursor textarea, .fx-cursor [contenteditable="true"] { cursor: text; }
-.fx-cursor select { cursor: pointer; }
-.fx-cursor button:disabled { cursor: not-allowed; }
 
-.fx-dot, .fx-ring, .fx-glow { position: fixed; top: 0; left: 0; pointer-events: none; opacity: 0; will-change: transform; }
-.fx-dot { z-index: 10001; width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: 50%;
-  background: var(--accent); box-shadow: 0 0 10px var(--accent), 0 0 22px color-mix(in srgb, var(--accent) 60%, transparent);
-  transition: opacity .2s, width .2s var(--ease), height .2s var(--ease), margin .2s var(--ease); }
-/* the ring inverts what is under it (mix-blend difference) and grows into a lens over buttons */
-.fx-ring { z-index: 10000; width: 38px; height: 38px; margin: -19px 0 0 -19px; border-radius: 50%; border: 1.5px solid #fff;
-  mix-blend-mode: difference;
-  transition: opacity .2s, width .3s var(--ease), height .3s var(--ease), margin .3s var(--ease), background .3s, border-width .3s; }
-.fx-ring.hover { width: 64px; height: 64px; margin: -32px 0 0 -32px; background: #fff; border-width: 0; }
-.fx-ring.down { width: 28px; height: 28px; margin: -14px 0 0 -14px; }
-.fx-ring.hover.down { width: 50px; height: 50px; margin: -25px 0 0 -25px; }
-.fx-visible .fx-dot, .fx-visible .fx-ring { opacity: 1; }
-.fx-visible .fx-ring.hover ~ .fx-dot { width: 4px; height: 4px; margin: -2px 0 0 -2px; }
-.fx-visible .fx-dot.text, .fx-visible .fx-ring.text { opacity: 0; }
+.fx-glow { position: fixed; top: 0; left: 0; pointer-events: none; opacity: 0; will-change: transform; }
 
 /* soft spotlight trailing the pointer, behind the (translucent) UI */
 .fx-glow { z-index: 0; width: 720px; height: 720px; margin: -360px 0 0 -360px; border-radius: 50%;
@@ -183,7 +166,7 @@ svg { display: block; flex: none; }
 @keyframes fxRipple { to { transform: scale(6); opacity: 0; } }
 
 @media (pointer: coarse), (prefers-reduced-motion: reduce) {
-  .fx-dot, .fx-ring, .fx-glow, .fx-ripple { display: none; }
+  .fx-glow, .fx-ripple { display: none; }
 }
 
 /* =====================================================================
