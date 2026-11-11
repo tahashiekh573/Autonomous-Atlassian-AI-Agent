@@ -73,6 +73,40 @@ class RequestReportParams(Params):
     days: int = Field(default=30, ge=1, le=365)
 
 
+FormQuestionType = Literal[
+    "short_text",
+    "long_text",
+    "rich_text",
+    "email",
+    "number",
+    "date",
+    "dropdown",
+    "single_choice",
+    "multi_choice",
+    "attachment",
+]
+
+
+class FormQuestion(Params):
+    label: str = Field(min_length=1, max_length=255)
+    type: FormQuestionType = "short_text"
+    description: str = ""
+    required: bool = False
+    choices: list[str] = Field(default_factory=list, description="For dropdown/choice types")
+    jira_field: str | None = Field(
+        default=None, description="Optional Jira field name or id to store the answer in"
+    )
+
+
+class CreateFormParams(ServiceDeskRef):
+    name: str = Field(min_length=1, max_length=255)
+    questions: list[FormQuestion] = Field(min_length=1, max_length=60)
+    request_types: list[str] = Field(
+        default_factory=list,
+        description="Request type names or ids that show this form on the portal",
+    )
+
+
 def _unsupported(name: str, description: str, limitation: str, alternative: str) -> OperationSpec:
     return OperationSpec(
         name,
@@ -197,11 +231,22 @@ SPECS: list[OperationSpec] = [
         "Queues are read-only in the public API.",
         "Queues → Manage queues; jsm.list_queues verifies the result.",
     ),
+    OperationSpec(
+        "jsm.create_form",
+        "jsm",
+        "create",
+        "Create a JSM form (questions: text, email, number, date, dropdown, single/multi "
+        "choice, attachment; required flags; optional Jira field mapping) and show it on the "
+        "portal for the given request types. Use this to build request forms.",
+        CreateFormParams,
+        requires_products=_JSM,
+    ),
     _unsupported(
         "jsm.configure_request_form",
-        "Configure request type fields, visibility, required flags, conditional fields or layout.",
-        "Request type field layout is not writable via the public API.",
-        "Project settings → Request types → Request form (or Forms).",
+        "Configure the built-in request type field layout, visibility or conditional fields.",
+        "The built-in request type field layout is not writable via the public API.",
+        "Use jsm.create_form to build a form for the request type instead, or Project settings "
+        "→ Request types → Request form.",
     ),
     _unsupported(
         "jsm.configure_approvals",

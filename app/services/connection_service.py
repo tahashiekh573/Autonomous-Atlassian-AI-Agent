@@ -87,7 +87,8 @@ class ConnectionService:
         async with self._factory.open(credentials) as clients:
             probe = await self._probe.run(clients)
 
-        status = _overall_status([p.available for p in probe.products])
+        # Assets is an add-on: its absence must not make the whole connection "partial".
+        status = _overall_status([p.available for p in probe.products if p.product != "assets"])
         tested_at = utcnow()
         result = ConnectionTestResult(
             connection_id=connection.id,

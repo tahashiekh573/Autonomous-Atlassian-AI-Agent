@@ -48,12 +48,16 @@ class Settings(BaseSettings):
     llm_provider: Literal["gemini", "openai"] = "gemini"
     gemini_api_key: SecretStr | None = None
     gemini_model: str = "gemini-3-flash-preview"
+    # Used in order when the primary model's daily free quota is used up (separate quotas).
+    gemini_fallback_models: list[str] = ["gemini-3.1-flash-lite"]
     gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta"
     openai_api_key: SecretStr | None = None
     openai_model: str = "gpt-4.1-mini"
     openai_base_url: str = "https://api.openai.com/v1"
     llm_timeout_seconds: float = 120.0
     llm_temperature: float = 0.1
+    # Pace LLM calls client-side (0 = unlimited). Free Gemini tiers allow ~5-10/minute.
+    llm_requests_per_minute: int = 8
 
     # --- Speech ---
     stt_provider: Literal["gemini", "openai", "none"] = "gemini"
@@ -65,7 +69,7 @@ class Settings(BaseSettings):
 
     # --- Execution ---
     auto_approve_risks: list[AutoApprovableRisk] = ["read"]
-    max_plan_operations: int = 40
+    max_plan_operations: int = 100
     verification_retry_delay_seconds: float = 1.5
 
     @model_validator(mode="after")

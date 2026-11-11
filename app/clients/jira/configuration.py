@@ -80,6 +80,14 @@ class JiraConfigurationMixin:
         )
         return body
 
+    async def find_field(self, field_id: str) -> dict[str, Any] | None:
+        """Look a field up by id (fresh, unlike the cached full field list)."""
+        body = await self._http.request(
+            "GET", "/rest/api/3/field/search", service=SERVICE, params={"id": field_id}
+        )
+        values = (body or {}).get("values") or []
+        return values[0] if values else None
+
     async def create_custom_field(
         self, name: str, description: str, field_type: str, searcher_key: str
     ) -> dict[str, Any]:

@@ -131,6 +131,39 @@ class AssignWorkflowParams(Params):
     scheme_name: str | None = None
 
 
+class WorkflowMappingDef(Params):
+    workflow_name: str
+    issue_types: list[str] = Field(min_length=1, description="Issue type names in the project")
+
+
+class ConfigureWorkflowSchemeParams(Params):
+    project_key: ProjectKey
+    mappings: list[WorkflowMappingDef] = Field(min_length=1)
+    default_workflow: str | None = Field(
+        default=None, description="Workflow for unmapped issue types (default: keep current)"
+    )
+    scheme_name: str | None = None
+
+
+class ApprovalDef(Params):
+    status: str = Field(description="Status that waits for approval, e.g. Approval Pending")
+    approve_transition: str = Field(description="Transition name run when approved")
+    reject_transition: str = Field(description="Transition name run when declined")
+    approvers_field: str = Field(
+        default="Approvers", description="Approvers / Approver groups field"
+    )
+    required_approvals: int = Field(default=1, ge=1, le=20)
+
+
+class UpdateWorkflowParams(Params):
+    workflow_name: str
+    add_statuses: list[StatusDef] = Field(default_factory=list)
+    add_transitions: list[TransitionDef] = Field(default_factory=list)
+    approvals: list[ApprovalDef] = Field(
+        default_factory=list, description="JSM approval steps on workflow statuses"
+    )
+
+
 class CreateIssueParams(Params):
     project_key: ProjectKey
     issue_type: str = Field(description="e.g. Epic, Story, Task, Bug, Sub-task")
@@ -228,6 +261,19 @@ class GadgetDef(Params):
         "resolution_time",
         "heat_map",
         "activity_stream",
+        "work_item_statistics",
+        "workload_pie",
+        "time_to_first_response",
+        "time_in_status",
+        "recently_created",
+        "time_since",
+        "issues_in_progress",
+        "sprint_burndown",
+        "sprint_health",
+        "sprint_days_remaining",
+        "issues_calendar",
+        "service_project_report",
+        "filter_counts",
     ]
     title: str | None = None
     column: int = Field(default=0, ge=0, le=3)
@@ -248,19 +294,36 @@ class GenerateReportParams(Params):
 
 
 class AutomationActionDef(Params):
-    type: Literal["assign", "transition", "comment", "set_priority", "send_email"]
+    type: Literal[
+        "assign", "transition", "comment", "set_priority", "send_email", "email_issue_list"
+    ]
     value: str = Field(
-        description="assign: accountId | transition: status | comment/email: text with smart "
-        "values | set_priority: priority name"
+        description="assign: accountId | transition: status | comment/send_email: text with smart "
+        "values | set_priority: priority name | email_issue_list: JQL of issues to list"
     )
-    email_to: str | None = Field(default=None, description="send_email recipient (smart value ok)")
+    email_to: list[str] = Field(
+        default_factory=lambda: ["assignee"],
+        description="Email recipients: assignee, reporter, watchers or email addresses",
+    )
+    email_subject: str | None = None
 
 
 class CreateAutomationRuleParams(Params):
     name: str
     project_key: ProjectKey
-    trigger: Literal["issue_created", "issue_transitioned", "issue_updated"]
+    trigger: Literal[
+        "issue_created", "issue_transitioned", "issue_updated", "issue_commented", "scheduled"
+    ]
     trigger_to_status: str | None = None
+    schedule_cron: str | None = Field(
+        default=None,
+        description='scheduled: Quartz cron, e.g. "0 0 8 ? * MON-FRI" (08:00 weekdays)',
+    )
+    scheduled_jql: str | None = Field(
+        default=None,
+        description="scheduled: issues the actions run on (each matching issue); omit for "
+        "issue-independent actions like email_issue_list",
+    )
     jql_condition: str | None = Field(default=None, description="e.g. priority = High")
     actions: list[AutomationActionDef] = Field(min_length=1)
     enabled: bool = True
@@ -364,6 +427,25 @@ SPECS: list[OperationSpec] = [
         "Create a workflow scheme using a workflow and assign it to a project that "
         "has no issues yet.",
         AssignWorkflowParams,
+        needs_jira_admin=True,
+    ),
+    OperationSpec(
+        "jira.configure_workflow_scheme",
+        "jira",
+        "modify",
+        "Give a project ONE workflow scheme that maps several issue types to workflows at once "
+        "(keeps other mappings). Works on projects that already have issues: statuses are "
+        "migrated automatically. Prefer this over several jira.assign_workflow steps.",
+        ConfigureWorkflowSchemeParams,
+        needs_jira_admin=True,
+    ),
+    OperationSpec(
+        "jira.update_workflow",
+        "jira",
+        "modify",
+        "Add statuses, transitions (e.g. reopen, rollback, failed) and JSM approval steps "
+        "(approvers field, required approvals, approve/decline transitions) to a workflow.",
+        UpdateWorkflowParams,
         needs_jira_admin=True,
     ),
     OperationSpec(

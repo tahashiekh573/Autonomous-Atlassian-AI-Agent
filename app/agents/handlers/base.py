@@ -9,6 +9,8 @@ from pydantic import BaseModel
 from app.clients.atlassian.factory import AtlassianClients
 from app.clients.confluence.confluence_client import ConfluenceClient
 from app.clients.jira.jira_client import JiraClient
+from app.clients.jsm.assets_client import AssetsClient
+from app.clients.jsm.forms_client import FormsClient
 from app.clients.jsm.jsm_client import JsmClient
 from app.schemas.agents import ResourceRef
 
@@ -39,6 +41,14 @@ class HandlerContext:
     @property
     def confluence(self) -> ConfluenceClient:
         return self.clients.confluence
+
+    @property
+    def forms(self) -> FormsClient:
+        return self.clients.forms
+
+    @property
+    def assets(self) -> AssetsClient:
+        return self.clients.assets
 
     @property
     def idempotency_label(self) -> str:

@@ -3,6 +3,7 @@
 from typing import Any
 
 from app.clients.atlassian.http_client import AtlassianHttpClient
+from app.clients.atlassian.paths import seg
 
 SERVICE = "jira"
 
@@ -67,3 +68,49 @@ class JiraWorkflowsMixin:
         )
         values = body.get("values") or []
         return values[0].get("workflowScheme") if values else None
+
+    async def get_workflows_by_name(self, names: list[str]) -> dict[str, Any]:
+        """Bulk get: {"workflows": [...with statuses/transitions/version], "statuses": [...]}."""
+        body: dict[str, Any] = await self._http.request(
+            "POST",
+            "/rest/api/3/workflows",
+            service=SERVICE,
+            json={"workflowNames": names},
+            idempotent=True,
+        )
+        return body
+
+    async def validate_workflow_update(self, payload: dict[str, Any]) -> list[dict[str, Any]]:
+        body = await self._http.request(
+            "POST",
+            "/rest/api/3/workflows/update/validation",
+            service=SERVICE,
+            json={"payload": payload, "validationOptions": {"levels": ["ERROR", "WARNING"]}},
+            idempotent=True,
+        )
+        return list((body or {}).get("errors") or [])
+
+    async def update_workflows(self, payload: dict[str, Any]) -> dict[str, Any]:
+        body: dict[str, Any] = await self._http.request(
+            "POST", "/rest/api/3/workflows/update", service=SERVICE, json=payload
+        )
+        return body
+
+    async def get_workflow_scheme(self, scheme_id: str) -> dict[str, Any]:
+        body: dict[str, Any] = await self._http.request(
+            "GET", f"/rest/api/3/workflowscheme/{seg(scheme_id)}", service=SERVICE
+        )
+        return body
+
+    async def switch_workflow_scheme(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Switch a project with issues to another scheme (async task, migrates statuses)."""
+        body: dict[str, Any] = await self._http.request(
+            "POST", "/rest/api/3/workflowscheme/project/switch", service=SERVICE, json=payload
+        )
+        return body
+
+    async def get_task(self, task_id: str) -> dict[str, Any]:
+        body: dict[str, Any] = await self._http.request(
+            "GET", f"/rest/api/3/task/{seg(task_id)}", service=SERVICE
+        )
+        return body

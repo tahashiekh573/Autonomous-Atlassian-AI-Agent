@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 from app.orchestrators.agent_set import AgentSet
 from app.orchestrators.events import RunEventSink
-from app.orchestrators.plan_validation import validate_plan
+from app.orchestrators.plan_validation import fill_missing_names, validate_plan
 from app.orchestrators.references import contains_ref
 from app.schemas.agents import (
     ExecutionPlan,
@@ -84,7 +84,12 @@ class PlanningOrchestrator:
         if "plan" not in state:
             return PlanningResult(outcome="needs_clarification", intent=intent)
         issues = state.get("issues", [])
-        blocked = any(i.severity == "error" for i in issues)
+        # Step-level errors only disable that step; plan-level errors block the run.
+        invalid_steps = {i.operation_id for i in issues if i.severity == "error" and i.operation_id}
+        blocked = any(i.severity == "error" and i.operation_id is None for i in issues) or (
+            bool(state["plan"].operations)
+            and invalid_steps >= {op.id for op in state["plan"].operations}
+        )
         return PlanningResult(
             outcome="blocked" if blocked else "planned",
             intent=intent,
@@ -150,6 +155,10 @@ class PlanningOrchestrator:
         plan = await self._agents.planning.run(
             PlanningInput(
                 intent=state["intent"],
+                request_text="\n\n".join(
+                    [t.content for t in state["request"].history if t.role == "user"]
+                    + [state["request"].text]
+                ),
                 catalog=describe_catalog(),
                 capabilities=state["capabilities"],
                 workspace=state.get("workspace", {}),
@@ -160,6 +169,11 @@ class PlanningOrchestrator:
 
     async def _preflight(self, state: _State) -> _State:
         plan = state["plan"]
+        named = fill_missing_names(plan)
+        if named:
+            plan.assumptions.append(
+                f"Steps {', '.join(named)} had no name; their description is used as the name."
+            )
         issues = validate_plan(plan, state["capabilities"], self._max_operations)
         checks: dict[str, OperationOutcome] = {}
         invalid_ops = {i.operation_id for i in issues if i.severity == "error"}

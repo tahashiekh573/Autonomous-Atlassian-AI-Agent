@@ -4,6 +4,7 @@ from typing import Any
 
 from app.clients.atlassian.http_client import AtlassianHttpClient
 from app.clients.atlassian.paths import seg
+from app.clients.jira.adf import to_adf
 
 SERVICE = "jira"
 
@@ -30,6 +31,14 @@ class JiraIssuesMixin:
 
     async def delete_issue(self, key: str) -> None:
         await self._http.request("DELETE", f"/rest/api/3/issue/{seg(key)}", service=SERVICE)
+
+    async def add_comment(self, key: str, text: str) -> None:
+        await self._http.request(
+            "POST",
+            f"/rest/api/3/issue/{seg(key)}/comment",
+            service=SERVICE,
+            json={"body": to_adf(text)},
+        )
 
     async def get_transitions(self, key: str) -> list[dict[str, Any]]:
         body = await self._http.request(
@@ -67,6 +76,18 @@ class JiraIssuesMixin:
             if not token or body.get("isLast") is True:
                 break
         return issues[:max_results]
+
+    async def parse_jql(self, queries: list[str]) -> list[list[str]]:
+        """Strict JQL validation: one list of error messages per query (empty = valid)."""
+        body = await self._http.request(
+            "POST",
+            "/rest/api/3/jql/parse",
+            service=SERVICE,
+            params={"validation": "strict"},
+            json={"queries": queries},
+            idempotent=True,
+        )
+        return [list(q.get("errors") or []) for q in (body or {}).get("queries") or []]
 
     async def approximate_count(self, jql: str) -> int:
         body = await self._http.request(

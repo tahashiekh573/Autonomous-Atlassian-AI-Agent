@@ -10,6 +10,7 @@ from app.agents.handlers import (
     jira_issues,
     jira_projects,
     jira_reports,
+    jira_workflow_schemes,
     jira_workflows,
 )
 from app.agents.handlers.base import Handler
@@ -41,13 +42,15 @@ class JiraAgent(OperationAgent):
             jira_workflows.create_workflow, jira_workflows.check_create_workflow
         ),
         "jira.assign_workflow": Handler(jira_workflows.assign_workflow),
+        "jira.configure_workflow_scheme": Handler(jira_workflow_schemes.configure_workflow_scheme),
+        "jira.update_workflow": Handler(jira_workflow_schemes.update_workflow),
         "jira.create_issue": Handler(jira_issues.create_issue, jira_issues.check_create_issue),
         "jira.update_issue": Handler(jira_issues.update_issue),
         "jira.transition_issue": Handler(jira_issues.transition_issue),
         "jira.link_issues": Handler(jira_issues.link_issues),
         "jira.delete_issue": Handler(jira_issues.delete_issue, jira_issues.check_delete_issue),
         "jira.search_issues": Handler(jira_issues.search_issues),
-        "jira.create_filter": Handler(jira_agile.create_filter),
+        "jira.create_filter": Handler(jira_agile.create_filter, jira_agile.check_create_filter),
         "jira.create_board": Handler(jira_agile.create_board),
         "jira.create_sprint": Handler(jira_agile.create_sprint),
         "jira.start_sprint": Handler(jira_agile.start_sprint),
@@ -55,5 +58,7 @@ class JiraAgent(OperationAgent):
         "jira.move_issues_to_backlog": Handler(jira_agile.move_issues_to_backlog),
         "jira.create_dashboard": Handler(jira_dashboards.create_dashboard),
         "jira.generate_report": Handler(jira_reports.generate_report),
-        "jira.create_automation_rule": Handler(jira_automation.create_automation_rule),
+        "jira.create_automation_rule": Handler(
+            jira_automation.create_automation_rule, jira_automation.check_automation_rule
+        ),
     }

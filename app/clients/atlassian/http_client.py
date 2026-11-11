@@ -102,7 +102,9 @@ class AtlassianHttpClient:
             if response.is_error:
                 raise error_for_response(response, service)
             if status == 204 or not response.content:
-                return None
+                # Async Jira operations answer 303 with the task URL only in Location.
+                location = response.headers.get("Location")
+                return {"location": location} if location else None
             return response.json()
 
     async def _backoff(

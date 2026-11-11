@@ -41,6 +41,9 @@ class Intent(BaseModel):
 
 class PlanningInput(BaseModel):
     intent: Intent
+    request_text: str = Field(
+        default="", description="The user's original words (authoritative; the intent is a summary)"
+    )
     catalog: str
     capabilities: dict[str, Any] = Field(default_factory=dict)
     workspace: dict[str, Any] = Field(default_factory=dict)
@@ -55,11 +58,33 @@ class PlannedOperation(BaseModel):
     depends_on: list[str] = Field(default_factory=list)
 
 
+class CoverageItem(BaseModel):
+    requirement: str = Field(description="One concrete item the user asked for")
+    operation_ids: list[str] = Field(
+        default_factory=list, description="Steps that deliver it (empty if not automatable)"
+    )
+    manual_reason: str | None = Field(
+        default=None, description="Why it cannot be automated / what the user must do instead"
+    )
+
+
 class ExecutionPlan(BaseModel):
     summary: str
     operations: list[PlannedOperation] = Field(default_factory=list)
+    coverage: list[CoverageItem] = Field(
+        default_factory=list, description="Every requested item mapped to steps or a manual reason"
+    )
     assumptions: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+
+
+class PlanExpansion(BaseModel):
+    """Additional steps for requested items the current plan does not cover yet."""
+
+    operations: list[PlannedOperation] = Field(default_factory=list)
+    coverage: list[CoverageItem] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    complete: bool = Field(description="True when every requested item is now covered")
 
 
 class PlanIssue(BaseModel):

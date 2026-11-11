@@ -96,6 +96,7 @@ async def test_connection_test_all_products_ok(
         "jira": True,
         "jsm": True,
         "confluence": True,
+        "assets": False,  # the fake site has no Assets workspace; must not make status partial
     }
     stored = (await client.get(f"/api/v1/connections/{conn['id']}")).json()
     assert stored["last_test_status"] == "ok"

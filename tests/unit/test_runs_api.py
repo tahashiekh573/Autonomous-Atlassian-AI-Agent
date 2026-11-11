@@ -259,3 +259,243 @@ async def test_operation_catalog_endpoint(client: httpx.AsyncClient) -> None:
     by_name = {e["name"]: e for e in entries}
     assert by_name["jira.create_project"]["supported"] is True
     assert by_name["jsm.configure_sla"]["supported"] is False
+
+
+async def test_long_master_prompt_is_accepted(
+    client: httpx.AsyncClient, app: FastAPI, fake_atlassian: FakeAtlassian
+) -> None:
+    StatefulSite(fake_atlassian)
+    connection_id = await tested_connection(client)
+    long_text = "# MASTER PROMPT\n" + ("Configure the service desk carefully. " * 400)
+    assert len(long_text) > 4000
+    created = await client.post(
+        "/api/v1/runs", json={"connection_id": connection_id, "text": long_text}
+    )
+    assert created.status_code == 202, created.text
+    await wait_for_run(app, created.json()["id"])
+
+    too_long = await client.post(
+        "/api/v1/runs", json={"connection_id": connection_id, "text": "x" * 50001}
+    )
+    assert too_long.status_code == 422
+    assert too_long.json()["error"]["details"]["errors"][0]["loc"][-1] == "text"
+
+
+async def test_oversized_plan_is_truncated_with_warning(
+    client: httpx.AsyncClient,
+    app: FastAPI,
+    fake_atlassian: FakeAtlassian,
+    fake_llm: FakeLLM,
+    settings: Any,
+) -> None:
+    StatefulSite(fake_atlassian)
+    n = settings.max_plan_operations + 3
+    fake_llm.plan = {
+        "summary": "big",
+        "operations": [
+            {
+                "id": f"s{i}",
+                "operation": "jira.list_projects",
+                "description": f"step {i}",
+                "params": {},
+            }
+            for i in range(1, n + 1)
+        ],
+    }
+    run = await _run(client, app)
+    assert len(run["operations"]) == settings.max_plan_operations
+    assert any("only the first" in w for w in run["plan"]["warnings"])
+
+
+async def test_planner_expansion_adds_missing_steps_with_renumbering(
+    client: httpx.AsyncClient, app: FastAPI, fake_atlassian: FakeAtlassian, fake_llm: FakeLLM
+) -> None:
+    StatefulSite(fake_atlassian)
+    fake_llm.plan = {
+        "summary": "first",
+        "operations": [
+            {
+                "id": "s1",
+                "operation": "confluence.create_space",
+                "description": "KB space",
+                "params": {"key": "KB2", "name": "KB two"},
+            }
+        ],
+    }
+    # The model reuses id s1 for its new step and references it: both must be renumbered.
+    fake_llm.expansions = [
+        {
+            "complete": True,
+            "operations": [
+                {
+                    "id": "s1",
+                    "operation": "confluence.create_page",
+                    "description": "Article",
+                    "params": {"space_key": "KB2", "title": "Reset password"},
+                },
+                {
+                    "id": "s2",
+                    "operation": "confluence.add_labels",
+                    "description": "Label",
+                    "params": {"page_id": "${s1.id}", "labels": ["kb"]},
+                    "depends_on": ["s1"],
+                },
+            ],
+            "coverage": [{"requirement": "Article: Reset password", "operation_ids": ["s1"]}],
+        }
+    ]
+    run = await _run(client, app)
+    ops = {o["op_id"]: o for o in run["operations"]}
+    assert list(ops) == ["s1", "s2", "s3"]
+    assert ops["s3"]["params"]["page_id"] == "${s2.id}" and ops["s3"]["depends_on"] == ["s2"]
+    assert run["plan"]["coverage"][-1]["operation_ids"] == ["s2"]
+
+
+def test_split_sections_only_for_long_structured_requests() -> None:
+    from app.agents.planning_agent import split_sections
+
+    assert split_sections("## A\nshort") == []
+    text = "# Title\nintro\n" + "".join(
+        f"## Part {i}\n" + ("detail " * 120) + "\n" for i in range(4)
+    )
+    sections = split_sections(text)
+    assert [t for t, _ in sections] == ["Part 0", "Part 1", "Part 2", "Part 3"]
+
+
+async def test_long_request_is_planned_section_by_section(
+    client: httpx.AsyncClient, app: FastAPI, fake_atlassian: FakeAtlassian, fake_llm: FakeLLM
+) -> None:
+    StatefulSite(fake_atlassian)
+    connection_id = await tested_connection(client)
+    fake_llm.expansions = [
+        {
+            "complete": True,
+            "operations": [
+                {
+                    "id": "s1",
+                    "operation": "jira.list_projects",
+                    "description": "List A",
+                    "params": {},
+                }
+            ],
+        },
+        {"complete": True, "operations": []},  # an instructions-only section
+        {
+            "complete": True,
+            "operations": [
+                {
+                    "id": "s2",
+                    "operation": "jira.list_projects",
+                    "description": "List C",
+                    "params": {},
+                }
+            ],
+        },
+    ]
+    text = "# Big\n" + "".join(f"## Section {c}\n" + ("words " * 150) + "\n" for c in "ABC")
+    created = await client.post("/api/v1/runs", json={"connection_id": connection_id, "text": text})
+    await wait_for_run(app, created.json()["id"])
+    run = (await client.get(f"/api/v1/runs/{created.json()['id']}")).json()
+    assert [o["description"] for o in run["operations"]] == ["List A", "List C"]
+    section_prompts = [p for s, p in fake_llm.prompts if "Section to plan now" in p]
+    assert len(section_prompts) == 3
+
+
+async def test_invalid_params_are_repaired_by_the_planner(
+    client: httpx.AsyncClient, app: FastAPI, fake_atlassian: FakeAtlassian, fake_llm: FakeLLM
+) -> None:
+    StatefulSite(fake_atlassian)
+    fake_llm.plan = {
+        "summary": "p",
+        "operations": [
+            {
+                "id": "s1",
+                "operation": "jira.create_priority",
+                "description": "Critical",
+                "params": {"name": "Critical", "color": "red"},
+            }
+        ],
+    }
+    fake_llm.param_fixes = [{"id": "s1", "params": {"name": "Critical", "color": "#FF0000"}}]
+    run = await _run(client, app)
+    assert run["status"] == "awaiting_approval", run["plan_issues"]
+    assert run["operations"][0]["params"]["color"] == "#FF0000"
+
+
+def test_merge_drops_duplicate_steps_and_redirects_references() -> None:
+    from app.agents.planning_agent import _merge
+    from app.schemas.agents import ExecutionPlan, PlanExpansion
+
+    plan = ExecutionPlan.model_validate(
+        {
+            "summary": "",
+            "operations": [
+                {
+                    "id": "s1",
+                    "operation": "jira.create_issue",
+                    "description": "Outage",
+                    "params": {
+                        "project_key": "EITSD",
+                        "issue_type": "Incident",
+                        "summary": "Network outage",
+                    },
+                }
+            ],
+        }
+    )
+    expansion = PlanExpansion.model_validate(
+        {
+            "complete": True,
+            "operations": [
+                {
+                    "id": "s2",
+                    "operation": "jira.create_issue",
+                    "description": "Outage again",
+                    "params": {
+                        "project_key": "EITSD",
+                        "issue_type": "Incident",
+                        "summary": "network outage ",
+                    },
+                },
+                {
+                    "id": "s3",
+                    "operation": "jira.link_issues",
+                    "description": "link",
+                    "params": {"from_issue": "${s2.key}", "to_issue": "EITSD-1"},
+                    "depends_on": ["s2"],
+                },
+            ],
+        }
+    )
+    assert _merge(plan, expansion) == 1
+    assert [o.id for o in plan.operations] == ["s1", "s3"]
+    assert plan.operations[1].params["from_issue"] == "${s1.key}"
+    assert plan.operations[1].depends_on == ["s1"]
+
+
+async def test_unsafe_automation_step_is_skipped_not_blocking(
+    client: httpx.AsyncClient, app: FastAPI, fake_atlassian: FakeAtlassian, fake_llm: FakeLLM
+) -> None:
+    StatefulSite(fake_atlassian)
+    fake_llm.plan = {
+        "summary": "p",
+        "operations": [
+            {"id": "s1", "operation": "jira.list_projects", "description": "list", "params": {}},
+            {
+                "id": "s2",
+                "operation": "jira.create_automation_rule",
+                "description": "Auto-close",
+                "params": {
+                    "name": "Auto-close",
+                    "project_key": "EITSD",
+                    "trigger": "issue_updated",
+                    "actions": [{"type": "transition", "value": "Closed"}],
+                },
+            },
+        ],
+    }
+    run = await _run(client, app)
+    assert run["status"] == "completed_with_errors", run["plan_issues"]
+    ops = {o["op_id"]: o for o in run["operations"]}
+    assert ops["s1"]["status"] == "completed"
+    assert ops["s2"]["status"] == "skipped" and "EVERY issue" in ops["s2"]["message"]

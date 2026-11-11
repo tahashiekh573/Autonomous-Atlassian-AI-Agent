@@ -44,8 +44,9 @@ async def issue_type_scheme(ctx: HandlerContext, p: Any, o: OperationOutcome) ->
 
 
 async def custom_field(ctx: HandlerContext, p: Any, o: OperationOutcome) -> Checks:
-    fields = await ctx.jira.list_fields()
-    checks = [exists("field", any(str(f["id"]) == out(o, "id") for f in fields), out(o, "id"))]
+    # The full field list lags behind creation; the field search endpoint does not.
+    field = await ctx.jira.find_field(out(o, "id"))
+    checks = [exists("field", field is not None, out(o, "id"))]
     if p.options:
         contexts = await ctx.jira.list_field_contexts(out(o, "id"))
         values = (
@@ -107,6 +108,38 @@ async def workflow_scheme(ctx: HandlerContext, p: Any, o: OperationOutcome) -> C
     proj = await ctx.jira.get_project(p.project_key)
     scheme = await ctx.jira.get_project_workflow_scheme(str(proj["id"]))
     return [check("assigned workflow scheme", out(o, "scheme_id"), str((scheme or {}).get("id")))]
+
+
+async def configured_scheme(ctx: HandlerContext, p: Any, o: OperationOutcome) -> Checks:
+    scheme = await ctx.jira.get_project_workflow_scheme(
+        out(o, "project_id") or str((await ctx.jira.get_project(p.project_key))["id"])
+    )
+    checks = [check("project workflow scheme", out(o, "scheme_id"), str((scheme or {}).get("id")))]
+    if scheme:
+        full = await ctx.jira.get_workflow_scheme(str(scheme["id"]))
+        mapped = {str(v) for v in (full.get("issueTypeMappings") or {}).values()}
+        for m in p.mappings:
+            checks.append(exists(f"{m.workflow_name} mapped", m.workflow_name in mapped))
+    return checks
+
+
+async def updated_workflow(ctx: HandlerContext, p: Any, o: OperationOutcome) -> Checks:
+    body = await ctx.jira.get_workflows_by_name([p.workflow_name])
+    wf = (body.get("workflows") or [{}])[0]
+    names = {str(t.get("name")).casefold() for t in wf.get("transitions") or []}
+    checks = [exists(f"transition {t.name}", t.name.casefold() in names) for t in p.add_transitions]
+    refs = {
+        str(s.get("name")).casefold(): str(s.get("statusReference") or s.get("id"))
+        for s in body.get("statuses") or []
+    }
+    for a in p.approvals:
+        ref = refs.get(a.status.casefold())
+        status: dict[str, Any] = next(
+            (s for s in wf.get("statuses") or [] if str(s.get("statusReference")) == ref), {}
+        )
+        active = (status.get("approvalConfiguration") or {}).get("active") == "true"
+        checks.append(exists(f"approval on {a.status}", active))
+    return checks
 
 
 async def issue(ctx: HandlerContext, p: Any, o: OperationOutcome) -> Checks:
@@ -184,9 +217,10 @@ async def in_backlog(ctx: HandlerContext, p: Any, o: OperationOutcome) -> Checks
 async def dashboard(ctx: HandlerContext, p: Any, o: OperationOutcome) -> Checks:
     d = await ctx.jira.get_dashboard(out(o, "id"))
     checks = [check("name", p.name, d.get("name"))]
-    if p.gadgets and not o.reused_existing:
+    expected = int(o.outputs.get("gadgets_added") or 0)
+    if expected and not o.reused_existing:
         count = len(await ctx.jira.get_gadgets(out(o, "id")))
-        checks.append(check("gadgets", len(p.gadgets), count, count >= len(p.gadgets)))
+        checks.append(check("gadgets", expected, count, count >= expected))
     return checks
 
 
@@ -211,6 +245,8 @@ VERIFIERS: dict[str, Verifier] = {
     "jira.create_statuses": statuses,
     "jira.create_workflow": workflow,
     "jira.assign_workflow": workflow_scheme,
+    "jira.configure_workflow_scheme": configured_scheme,
+    "jira.update_workflow": updated_workflow,
     "jira.create_issue": issue,
     "jira.update_issue": issue,
     "jira.transition_issue": transition,

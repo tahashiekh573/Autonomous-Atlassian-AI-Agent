@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from app.agents.handlers.base import HandlerContext, HandlerResult, same_name
+from app.agents.handlers.base import CheckResult, HandlerContext, HandlerResult, same_name
 from app.agents.handlers.jira_common import require_project
 from app.core.exceptions import OperationInputError
 from app.schemas.agents import ResourceRef
@@ -31,6 +31,17 @@ async def ensure_filter(
         project = await require_project(ctx, share_project_key)
         payload["sharePermissions"] = [{"type": "project", "project": {"id": str(project["id"])}}]
     return await ctx.jira.create_filter(payload), False
+
+
+async def check_jql(ctx: HandlerContext, jql: str) -> CheckResult:
+    errors = (await ctx.jira.parse_jql([jql]) or [[]])[0]
+    if errors:
+        return CheckResult(conflict=True, notes=[f"Invalid JQL: {'; '.join(errors)}"])
+    return CheckResult(notes=["JQL validated by Jira."])
+
+
+async def check_create_filter(ctx: HandlerContext, p: CreateFilterParams) -> CheckResult:
+    return await check_jql(ctx, p.jql)
 
 
 async def create_filter(ctx: HandlerContext, p: CreateFilterParams) -> HandlerResult:

@@ -1,16 +1,29 @@
 """The single registry of executable operations, and its LLM-facing description."""
 
 import json
+import re
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
-from app.schemas.operations import confluence_ops, integration_ops, jira_ops, jsm_ops
+from app.schemas.operations import (
+    assets_ops,
+    confluence_ops,
+    integration_ops,
+    jira_ops,
+    jsm_ops,
+)
 from app.schemas.operations.spec import OperationSpec
 
 CATALOG: dict[str, OperationSpec] = {
     spec.name: spec
-    for spec in (*jira_ops.SPECS, *jsm_ops.SPECS, *confluence_ops.SPECS, *integration_ops.SPECS)
+    for spec in (
+        *jira_ops.SPECS,
+        *jsm_ops.SPECS,
+        *assets_ops.SPECS,
+        *confluence_ops.SPECS,
+        *integration_ops.SPECS,
+    )
 }
 
 
@@ -63,3 +76,39 @@ def describe_catalog() -> str:
             lines.append(f"limitation: {spec.limitation}")
         lines.append("")
     return "\n".join(lines)
+
+
+_REF = re.compile(r"\$\{s\d{1,3}\.[A-Za-z0-9_.]+\}")
+
+
+def _has_ref(value: Any) -> bool:
+    if isinstance(value, str):
+        return bool(_REF.search(value))
+    if isinstance(value, dict):
+        return any(_has_ref(v) for v in value.values())
+    if isinstance(value, list):
+        return any(_has_ref(v) for v in value)
+    return False
+
+
+def param_errors(model: type[BaseModel], params: dict[str, Any]) -> list[str]:
+    """Validation errors for a step's params, ignoring fields that hold ${sN.x} references
+    (those are resolved and validated at execution time)."""
+    try:
+        model.model_validate(params)
+    except ValidationError as exc:
+        errors: list[str] = []
+        for err in exc.errors():
+            value: Any = params
+            for part in err["loc"]:
+                if isinstance(value, dict):
+                    value = value.get(part)
+                elif isinstance(value, list) and isinstance(part, int) and part < len(value):
+                    value = value[part]
+                else:
+                    value = None
+            if _has_ref(value):
+                continue
+            errors.append(f"{'.'.join(map(str, err['loc']))}: {err['msg']}")
+        return errors
+    return []

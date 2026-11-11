@@ -18,10 +18,13 @@ RunStatus = Literal[
 ]
 ACTIVE_STATUSES = ("planning", "executing")
 
+# Long, structured "master prompts" are a normal way to describe a whole environment.
+MAX_COMMAND_CHARS = 50_000
+
 
 class RunCreate(BaseModel):
     connection_id: str
-    text: str = Field(min_length=1, max_length=4000)
+    text: str = Field(min_length=1, max_length=MAX_COMMAND_CHARS)
     input_mode: Literal["text", "voice"] = "text"
 
 
@@ -38,7 +41,7 @@ class RejectRequest(BaseModel):
 
 
 class ClarifyRequest(BaseModel):
-    answer: str = Field(min_length=1, max_length=4000)
+    answer: str = Field(min_length=1, max_length=MAX_COMMAND_CHARS)
 
 
 class OperationRead(BaseModel):

@@ -14,6 +14,8 @@ def build_llm_client(settings: Settings) -> LLMClient | None:
             base_url=settings.gemini_base_url,
             timeout_seconds=settings.llm_timeout_seconds,
             temperature=settings.llm_temperature,
+            requests_per_minute=settings.llm_requests_per_minute,
+            fallback_models=settings.gemini_fallback_models,
         )
     if settings.llm_provider == "openai" and settings.openai_api_key:
         return OpenAIClient(
@@ -22,5 +24,6 @@ def build_llm_client(settings: Settings) -> LLMClient | None:
             base_url=settings.openai_base_url,
             timeout_seconds=settings.llm_timeout_seconds,
             temperature=settings.llm_temperature,
+            requests_per_minute=settings.llm_requests_per_minute,
         )
     return None

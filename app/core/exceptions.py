@@ -101,6 +101,12 @@ class LLMError(AppError):
     code = "llm_error"
 
 
+class LLMQuotaExhaustedError(LLMError):
+    """A daily (not per-minute) quota is used up: retrying soon cannot help."""
+
+    code = "llm_quota_exhausted"
+
+
 class SpeechError(AppError):
     status_code = 502
     code = "speech_error"

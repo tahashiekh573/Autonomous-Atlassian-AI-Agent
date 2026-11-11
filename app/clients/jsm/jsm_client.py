@@ -66,8 +66,18 @@ class JsmClient:
             f"{_BASE}/servicedesk/{seg(service_desk_id)}/requesttype",
             service=SERVICE,
             json=payload,
+            headers=_EXPERIMENTAL,  # Jira answers 412 without the opt-in header
         )
         return body
+
+    async def get_request_type_fields(self, service_desk_id: str, request_type_id: str) -> set[str]:
+        """Field ids the portal form of a request type accepts (e.g. summary, description)."""
+        body = await self._http.request(
+            "GET",
+            f"{_BASE}/servicedesk/{seg(service_desk_id)}/requesttype/{seg(request_type_id)}/field",
+            service=SERVICE,
+        )
+        return {str(f.get("fieldId")) for f in (body or {}).get("requestTypeFields") or []}
 
     async def list_request_type_groups(self, service_desk_id: str) -> list[dict[str, Any]]:
         return [
@@ -179,3 +189,8 @@ class JsmClient:
                 {"query": query},
             )
         ]
+
+    async def get_assets_workspace_id(self) -> str | None:
+        body = await self._http.request("GET", f"{_BASE}/assets/workspace", service=SERVICE)
+        values = (body or {}).get("values") or []
+        return str(values[0]["workspaceId"]) if values else None

@@ -307,7 +307,7 @@ def test_automation_rule_matches_live_api_shape() -> None:
             "actions": [{"type": "assign", "value": "acc-1"}, {"type": "comment", "value": "hi"}],
         }
     )
-    rule = build_rule(p, "cloud-1", "10", "acc-1")["rule"]
+    rule = build_rule(p, "cloud-1", "10", "acc-1", {})["rule"]
     assert rule["writeAccessType"] == "OWNER_ONLY"
     assert rule["ruleScopeARIs"] == ["ari:cloud:jira:cloud-1:project/10"]
     assert "ruleScope" not in rule
@@ -330,3 +330,50 @@ async def test_automation_rejects_smart_value_assignee(ctx: HandlerContext) -> N
         )
     )
     assert outcome.error_code == "operation_invalid_input"
+
+
+def test_set_priority_action_uses_priority_id() -> None:
+    from app.agents.handlers.jira_automation import build_rule
+    from app.schemas.operations.jira_ops import CreateAutomationRuleParams
+
+    p = CreateAutomationRuleParams.model_validate(
+        {
+            "name": "P",
+            "project_key": "EITSD",
+            "trigger": "issue_created",
+            "jql_condition": "summary ~ outage",
+            "actions": [{"type": "set_priority", "value": "Highest"}],
+        }
+    )
+    rule = build_rule(p, "c", "1", "acc", {"highest": "1"})["rule"]
+    op = rule["components"][1]["value"]["operations"][0]
+    assert op["value"] == {"type": "ID", "value": "1"}
+
+
+def test_scheduled_summary_rule_shape() -> None:
+    from app.agents.handlers.jira_automation import build_rule
+    from app.schemas.operations.jira_ops import CreateAutomationRuleParams
+
+    p = CreateAutomationRuleParams.model_validate(
+        {
+            "name": "Daily SLA Summary",
+            "project_key": "EITSD",
+            "trigger": "scheduled",
+            "schedule_cron": "0 0 8 ? * MON-FRI",
+            "actions": [
+                {
+                    "type": "email_issue_list",
+                    "value": "project = EITSD AND statusCategory != Done",
+                    "email_to": ["lead@example.com"],
+                }
+            ],
+        }
+    )
+    rule = build_rule(p, "c", "1", "acc", {})["rule"]
+    assert rule["trigger"]["type"] == "jira.jql.scheduled"
+    assert rule["trigger"]["value"]["schedule"]["cronExpression"] == "0 0 8 ? * MON-FRI"
+    assert rule["trigger"]["value"]["executionMode"] == "nosearch"
+    lookup, email = rule["components"]
+    assert lookup["type"] == "jira.lookup.issues" and lookup["value"]["id"]
+    assert email["type"] == "jira.issue.outgoing.email" and email["schemaVersion"] == 3
+    assert email["value"]["to"] == [{"type": "FREE", "value": "lead@example.com"}]

@@ -216,13 +216,21 @@ async def create_request(ctx: HandlerContext, p: CreateRequestParams) -> Handler
     payload: dict[str, Any] = {
         "serviceDeskId": desk.id,
         "requestTypeId": request_type_id,
-        "requestFieldValues": {"summary": p.summary, "description": p.description},
+        "requestFieldValues": {"summary": p.summary},
     }
+    # Request types created via the API often only have Summary on their portal form; sending a
+    # field the form lacks makes Jira reject the whole request.
+    accepted = await ctx.jsm.get_request_type_fields(desk.id, request_type_id)
+    description_as_comment = bool(p.description) and "description" not in accepted
+    if p.description and "description" in accepted:
+        payload["requestFieldValues"]["description"] = p.description
     if p.raise_on_behalf_of:
         payload["raiseOnBehalfOf"] = p.raise_on_behalf_of
     created = await ctx.jsm.create_request(payload)
     key = str(created["issueKey"])
     await ctx.jira.update_issue(key, {"labels": [label]})  # makes retries idempotent
+    if description_as_comment:
+        await ctx.jira.add_comment(key, p.description)
     url = f"{ctx.site_url}/browse/{key}"
     return HandlerResult(
         message=f"Raised request {key}: {p.summary}",

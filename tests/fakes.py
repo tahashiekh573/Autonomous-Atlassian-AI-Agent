@@ -298,11 +298,24 @@ class FakeLLM(LLMClient):
         self.page_body = "<h2>Overview</h2><p>Generated &amp; verified.</p>"
         self.prompts: list[tuple[str, str]] = []
         self.invalid_first: set[str] = set()
+        self.expansions: list[dict[str, Any]] = []
+        self.param_fixes: list[dict[str, Any]] = []
 
     async def generate(self, *, system: str, prompt: str, json_mode: bool = False) -> str:
         self.prompts.append((system[:60], prompt))
         if "Input Understanding Agent" in system:
             role, payload = "understanding", self.intent
+        elif "Planning Agent" in system and "Steps with invalid params" in prompt:
+            role, payload = "repair", {"fixes": self.param_fixes}
+        elif "Planning Agent" in system and (
+            "## Current plan" in prompt
+            or "Section to plan now" in prompt
+            or "Steps already planned for this section" in prompt
+        ):
+            role = "expansion"
+            payload = (
+                self.expansions.pop(0) if self.expansions else {"operations": [], "complete": True}
+            )
         elif "Planning Agent" in system:
             role, payload = "planning", self.plan
         elif "Response Agent" in system:

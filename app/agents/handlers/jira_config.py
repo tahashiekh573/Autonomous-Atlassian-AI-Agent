@@ -10,6 +10,7 @@ from app.agents.handlers.jira_common import (
     resolve_field_id,
 )
 from app.core.exceptions import (
+    AtlassianApiError,
     OperationConflictError,
     OperationInputError,
     OperationUnsupportedError,
@@ -257,6 +258,23 @@ async def create_field_configuration(
     )
 
 
+PRIORITY_ICON_BASE = "/images/icons/priorities/"
+
+
+def priority_icon(name: str) -> str:
+    """Built-in icon (Jira requires iconUrl or avatarId) chosen from the priority's name."""
+    n = name.casefold()
+    for words, icon in (
+        (("lowest", "p5", "trivial"), "lowest_new"),
+        (("critical", "highest", "p1", "blocker", "urgent"), "highest_new"),
+        (("high", "p2", "major"), "high_new"),
+        (("low", "p4", "minor"), "low_new"),
+    ):
+        if any(w in n for w in words):
+            return PRIORITY_ICON_BASE + icon
+    return PRIORITY_ICON_BASE + "medium_new"
+
+
 async def create_priority(ctx: HandlerContext, p: CreatePriorityParams) -> HandlerResult:
     found = next(
         (x for x in await ctx.jira.search_priorities(p.name) if same_name(x.get("name"), p.name)),
@@ -268,9 +286,14 @@ async def create_priority(ctx: HandlerContext, p: CreatePriorityParams) -> Handl
             outputs={"id": str(found["id"])},
             reused_existing=True,
         )
-    created = await ctx.jira.create_priority(
-        {"name": p.name, "statusColor": p.color, "description": p.description}
-    )
+    payload = {"name": p.name, "statusColor": p.color, "description": p.description}
+    icon = priority_icon(p.name)
+    try:
+        created = await ctx.jira.create_priority({**payload, "iconUrl": f"{icon}.svg"})
+    except AtlassianApiError as exc:
+        if "icon" not in exc.message.casefold():
+            raise
+        created = await ctx.jira.create_priority({**payload, "iconUrl": f"{icon}.png"})
     return HandlerResult(
         message=f"Created priority '{p.name}'.",
         outputs={"id": str(created["id"])},

@@ -7,7 +7,12 @@ Every check is a GET; nothing in the connected instance is modified.
 from dataclasses import dataclass
 
 from app.clients.atlassian.factory import AtlassianClients
-from app.core.exceptions import AtlassianAuthError, AtlassianError, AtlassianNotFoundError
+from app.core.exceptions import (
+    AtlassianAuthError,
+    AtlassianError,
+    AtlassianNotFoundError,
+    AtlassianPermissionError,
+)
 from app.schemas.connection import AccountInfo, ProductStatus
 
 JIRA_PERMISSION_KEYS = ("ADMINISTER", "BROWSE_PROJECTS", "CREATE_ISSUES")
@@ -32,13 +37,14 @@ class AtlassianProbe:
                     detail="Skipped: credentials were rejected by Jira.",
                     error_code=jira.error_code,
                 )
-                for p in ("jsm", "confluence")
+                for p in ("jsm", "confluence", "assets")
             ]
             return ProbeResult(account=None, is_jira_admin=None, products=[jira, *skipped])
         jsm = await self._probe_jsm(clients)
         confluence = await self._probe_confluence(clients)
+        assets = await self._probe_assets(clients, jsm.available)
         return ProbeResult(
-            account=account, is_jira_admin=is_admin, products=[jira, jsm, confluence]
+            account=account, is_jira_admin=is_admin, products=[jira, jsm, confluence, assets]
         )
 
     async def _probe_jira(
@@ -81,6 +87,35 @@ class AtlassianProbe:
                 "version": info.version,
                 "service_desks": [{"id": d.id, "project_key": d.project_key} for d in desks],
             },
+        )
+
+    async def _probe_assets(self, clients: AtlassianClients, jsm_available: bool) -> ProductStatus:
+        if not jsm_available:
+            return ProductStatus(
+                product="assets", available=False, detail="Assets needs Jira Service Management."
+            )
+        try:
+            workspace_id = await clients.jsm.get_assets_workspace_id()
+            if not workspace_id:
+                return ProductStatus(
+                    product="assets", available=False, detail="This site has no Assets workspace."
+                )
+            schemas = await clients.assets.list_schemas(workspace_id)
+        except AtlassianPermissionError as exc:
+            return _unavailable(
+                "assets",
+                exc,
+                "Assets workspace exists but the Assets REST API is denied for this account. It "
+                "needs a JSM plan that includes the Assets API (Premium/Enterprise) and Assets "
+                "permissions for the account.",
+            )
+        except AtlassianError as exc:
+            return _unavailable("assets", exc)
+        return ProductStatus(
+            product="assets",
+            available=True,
+            detail=f"Assets API reachable; {len(schemas)} object schema(s).",
+            metadata={"workspace_id": workspace_id},
         )
 
     async def _probe_confluence(self, clients: AtlassianClients) -> ProductStatus:

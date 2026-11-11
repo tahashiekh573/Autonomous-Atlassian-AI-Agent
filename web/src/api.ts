@@ -51,7 +51,15 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
       throw new ApiError(response.status, UNREACHABLE, UNREACHABLE_MESSAGE);
     }
     const err = body?.error ?? {};
-    throw new ApiError(response.status, err.code ?? "error", err.message ?? response.statusText);
+    let message: string = err.message ?? response.statusText;
+    // Validation errors: say which field and why, not just "Request validation failed."
+    const fieldErrors: { loc?: unknown[]; msg?: string }[] = err.details?.errors ?? [];
+    if (fieldErrors.length) {
+      message += " " + fieldErrors
+        .map((e) => `${(e.loc ?? []).filter((p) => p !== "body").join(".")}: ${e.msg}`)
+        .join("; ");
+    }
+    throw new ApiError(response.status, err.code ?? "error", message);
   }
   return body as T;
 }

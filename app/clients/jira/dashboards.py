@@ -40,6 +40,11 @@ class JiraDashboardsMixin:
         )
         return body
 
+    async def list_available_gadgets(self) -> list[dict[str, Any]]:
+        """Gadget directory: legacy gadgets have a ``uri``, dashboard items a ``moduleKey``."""
+        body = await self._http.request("GET", "/rest/api/3/dashboard/gadgets", service=SERVICE)
+        return list(body.get("gadgets") or [])
+
     async def get_gadgets(self, dashboard_id: str) -> list[dict[str, Any]]:
         body = await self._http.request(
             "GET", f"/rest/api/3/dashboard/{seg(dashboard_id)}/gadget", service=SERVICE

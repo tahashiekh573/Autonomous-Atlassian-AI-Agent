@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
-Product = Literal["jira", "jsm", "confluence"]
+Product = Literal["jira", "jsm", "confluence", "assets"]
 TestStatus = Literal["ok", "partial", "failed"]
 
 

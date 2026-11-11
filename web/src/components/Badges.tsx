@@ -23,11 +23,16 @@ const RISK_TONE: Record<string, string> = {
 export const human = (s: string) => s.replace(/_/g, " ");
 
 export function RunBadge({ status }: { status: RunStatus }) {
-  return <span className={`badge ${RUN_TONE[status]}`}>{human(status)}</span>;
+  const live = status === "planning" || status === "executing";
+  return <span key={status} className={`badge pop ${RUN_TONE[status]} ${live ? "live" : ""}`}>{human(status)}</span>;
 }
 
 export function OpBadge({ status }: { status: Operation["status"] }) {
-  return <span className={`badge ${OP_TONE[status]}`}>{OP_LABEL[status]}</span>;
+  return (
+    <span key={status} className={`badge pop ${OP_TONE[status]} ${status === "in_progress" ? "live" : ""}`}>
+      {OP_LABEL[status]}
+    </span>
+  );
 }
 
 export function RiskBadge({ risk }: { risk: string }) {

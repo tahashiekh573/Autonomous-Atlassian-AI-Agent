@@ -48,12 +48,13 @@ site, and only after you approve them.
 | Area | Examples |
 |---|---|
 | **Jira Software** | Create Scrum/Kanban projects, issue types and schemes, custom fields, screens, field configurations, priorities, statuses, workflows (validated by Jira before creation), boards, sprints, epics/stories/tasks/bugs/sub-tasks, dependencies ("blocks"), start/due dates, filters, dashboards, reports, automation rules |
-| **Jira Service Management** | Create service projects (ITSM, general, customer service, HR, facilities), request types, organizations, customers, requests/incidents, participants, SLA and request reports |
+| **Jira Service Management** | Create service projects (ITSM, general, customer service, HR, facilities), request types, **portal forms** (text, email, number, date, dropdown, single/multi choice, attachment questions), organizations, customers, requests/incidents, participants, SLA and request reports |
+| **Assets (CMDB)** | Create object schemas with object type hierarchies and attributes, and create asset objects (requires the Assets REST API on your JSM plan) |
 | **Confluence** | Create spaces, KB articles, IT/HR policies, SOPs, troubleshooting guides, technical and project documentation, requirement pages and index pages. Page content is written by the AI from a short brief. Also page hierarchies, labels, space permissions |
 | **Cross-product** | Link issues to Confluence pages, turn JSM incidents into development bugs and link them, embed live Jira issue lists in pages, connect a project to its documentation space |
 | **Reporting** | Project summary, workload, created-vs-resolved, sprint progress, SLA breached/met counts, request volume |
 
-The catalog has **64 operations**. 10 of them are features Atlassian exposes **no public API**
+The catalog has **70 operations**. 10 of them are features Atlassian exposes **no public API**
 for (for example SLA configuration and queue creation). The agent never fakes these: it reports
 them as skipped and gives you the exact manual steps. See
 [What Atlassian's API cannot do](#what-atlassians-api-cannot-do).
@@ -179,7 +180,8 @@ Only the first two variables are required for local use. Everything else has a s
 | `DATABASE_URL` | | `sqlite+aiosqlite:///./data/app.db` | PostgreSQL: `postgresql+asyncpg://user:pass@host:5432/db` (install with `pip install -e ".[postgres]"`). |
 | `DB_AUTO_CREATE` | | `true` | Creates tables on startup. In production set it to `false` and use `alembic upgrade head`. |
 | `AUTO_APPROVE_RISKS` | | `["read"]` | Risk classes that run without approval (`read`, `create`, `modify`). Destructive and security steps **always** need approval. |
-| `MAX_PLAN_OPERATIONS` | | `40` | Upper bound on steps per plan. |
+| `MAX_PLAN_OPERATIONS` | | `60` | Upper bound on steps per plan (extra steps are listed in a warning). |
+| `LLM_REQUESTS_PER_MINUTE` | | `8` | Paces LLM calls so free tiers are not exceeded (0 = unlimited). Raise it if you have a paid Gemini plan. |
 | `STT_PROVIDER` | | `gemini` | Speech-to-text: `gemini`, `openai` or `none`. |
 | `TTS_PROVIDER` | | `none` | Text-to-speech: `openai` or `none` (the dashboard then uses the browser's own voice). |
 | `ATLASSIAN_ALLOWED_HOST_SUFFIXES` | | `[".atlassian.net"]` | Credentials are only ever sent to these hosts. |
@@ -337,7 +339,9 @@ These tables list the operations the planner can use. Each one has a typed param
 | `jira.create_priority` | create | Create an issue priority. (Jira admin) |
 | `jira.create_statuses` | create | Create global statuses. (Jira admin) |
 | `jira.create_workflow` | create | Create a workflow with statuses and transitions (validated by Jira before creation). (Jira admin) |
-| `jira.assign_workflow` | modify | Create a workflow scheme and assign it to a project that has no issues yet. (Jira admin) |
+| `jira.assign_workflow` | modify | Map one or more issue types of a project to a workflow. (Jira admin) |
+| `jira.configure_workflow_scheme` | modify | Map several issue types to workflows in one scheme; switches projects that already have issues and migrates their statuses. (Jira admin) |
+| `jira.update_workflow` | modify | Add statuses and transitions (reopen, rollback, failed…) to an existing workflow. (Jira admin) |
 | `jira.create_issue` | create | Create an Epic, Story, Task, Bug or Sub-task (`parent_key` links it to the epic or parent; supports start/due dates for timelines). |
 | `jira.update_issue` | modify | Update issue fields. |
 | `jira.transition_issue` | modify | Move an issue to a workflow status. |
@@ -368,8 +372,21 @@ These tables list the operations the planner can use. Each one has a typed param
 | `jsm.add_customers` | security | Grant portal access to customers (creates customer accounts when needed). |
 | `jsm.create_request` | create | Raise a customer request / incident. |
 | `jsm.add_participants` | modify | Add request participants. |
+| `jsm.create_form` | create | Build a portal form (questions, required flags, choices, optional Jira field mapping) and show it on request types. |
 | `jsm.sla_report` | read | Count breached / running / met SLAs per SLA metric. |
 | `jsm.request_report` | read | Request/incident volume grouped by status, priority, assignee or type. |
+
+#### Assets (CMDB)
+
+| Operation | Risk | What it does |
+|---|---|---|
+| `assets.list_schemas` | read | List Assets object schemas. |
+| `assets.create_schema` | create | Create an object schema with object types (parent → child hierarchy) and attributes (text, number, date, select, URL, email, IP…). |
+| `assets.create_objects` | create | Create asset objects of one type with attribute values (reuses objects with the same Name). |
+
+Assets needs the **Assets REST API** to be available for your JSM plan (typically Premium or
+Enterprise) and Assets permissions for the connected account. The connection test shows an
+`assets` badge; when it is missing, Assets steps are blocked during preflight with the reason.
 
 #### Confluence
 
@@ -411,7 +428,7 @@ never reported as done.
 | `jsm.configure_sla` | No public API for SLA configuration. | Project settings → SLAs. The ITSM template already ships "Time to first response" and "Time to resolution"; `jsm.sla_report` verifies they run. |
 | `jsm.configure_sla_calendar` | No public API for SLA calendars. | Project settings → SLAs → Calendars. |
 | `jsm.create_queue` | Queues are read-only in the public API. | Queues → Manage queues (`jsm.list_queues` verifies). |
-| `jsm.configure_request_form` | Request form layout is not writable. | Project settings → Request types → Request form (or Forms). |
+| `jsm.configure_request_form` | The built-in request type field layout is not writable. | Use `jsm.create_form` to build a form for the request type instead. |
 | `jsm.configure_approvals` | Approval configuration is not exposed. | Workflow editor → status → Add approval. |
 | `jsm.configure_portal` | Help center / portal configuration has no API. | Project settings → Portal settings / Portal groups. |
 | `jsm.link_knowledge_base` | Linking a KB space is UI-only. | Project settings → Knowledge base → Link space (the agent can create the space and articles first). |
@@ -419,8 +436,8 @@ never reported as done.
 Other partial limitations:
 - **Dashboard gadgets** are added, but their data source (filter) must be picked in each gadget's
   Configure menu.
-- **Workflow scheme assignment** only works while the project has no issues (a Jira rule).
-  The planner orders it before issue creation.
+- **Workflow scheme changes** on projects with issues run as a Jira background task with status
+  migration; the previous scheme id is reported for rollback.
 - **Team-managed projects** do not support issue type schemes; the agent creates company-managed
   projects by default.
 
@@ -551,7 +568,10 @@ pytest -m integration                      # + create → verify → delete cycl
 | Log says `No LLM configured` | `GEMINI_API_KEY` missing from `.env` (keys in `.env.example` are ignored) | Put the key in `.env` and restart. |
 | Gemini **HTTP 404** "model … no longer available" | The model is retired or not enabled for your key | Set `GEMINI_MODEL` to a model your key supports, e.g. `gemini-3-flash-preview`. List them with `GET https://generativelanguage.googleapis.com/v1beta/models?key=…`. |
 | Gemini **ReadTimeout** | The model name is not in your key's model list (the request hangs) | Same as above. |
-| Gemini **HTTP 429** / report summary looks plain | Free-tier rate limit (a few requests per minute) | The agent waits and retries automatically (honouring Google's `retryDelay`). For heavy use, enable billing in Google AI Studio. Plain reports are still accurate: counts and links come from verified data. |
+| Gemini **HTTP 429** / report summary looks plain | Free-tier rate limit (a few requests per minute) | Calls are paced by `LLM_REQUESTS_PER_MINUTE` and 429s are retried up to 6 times using Google's `retryDelay`. If it still happens, lower `LLM_REQUESTS_PER_MINUTE` (e.g. 5) or enable billing. Plain reports are still accurate: counts and links come from verified data. |
+| Request type steps fail with HTTP 412 "experimental" | Older version of the agent | Fixed: the opt-in header is sent. Restart `npm start`. |
+| Dashboard gadget "module key … not present" | Older version of the agent | Fixed: gadgets are resolved from your site's gadget directory; gadgets your site lacks are skipped and listed. |
+| `assets` badge missing / Assets steps blocked | Assets REST API denied (403) for the plan or account | Needs a JSM plan with the Assets API and Assets permissions; then re-run the connection test. |
 | Connection test `failed`, `atlassian_auth_failed` | Wrong email or API token | Use the Atlassian login email and a fresh token. |
 | `jira`/`jsm`/`confluence` badge missing | That product is not enabled on the site | Plans that need it are blocked during preflight. |
 | "Requires Jira administrator permission" | The connected account is not a Jira admin | Use an admin account for projects, workflows, schemes and automation. |
@@ -572,7 +592,7 @@ app/
                        passwords), prompt loader, dependency injection
   middlewares/         request IDs + access log, global error envelope
   routers/             HTTP endpoints only (auth, connections, runs, voice, audit, health)
-  schemas/             Pydantic contracts; operations/ = the 64-operation catalog
+  schemas/             Pydantic contracts; operations/ = the 70-operation catalog
   services/            runs, background run engine, approvals, auth, connections,
                        workspace overview, voice, audit, login throttle
   orchestrators/       LangGraph planning + execution graphs, plan validation,
@@ -583,7 +603,7 @@ app/
   prompts/             agent system prompts (Markdown, never in Python code)
   clients/             the only code that calls external APIs:
     atlassian/         shared HTTP client (auth, retries, rate limits, pagination, errors)
-    jira/ jsm/ confluence/   product REST clients
+    jira/ jsm/ confluence/   product REST clients (jsm/ also has Forms and Assets clients)
     llm/               Gemini + OpenAI-compatible clients
     speech/            speech-to-text / text-to-speech providers
   repositories/        database access

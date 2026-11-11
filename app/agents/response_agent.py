@@ -5,13 +5,14 @@ so the report can never claim more than verification established.
 """
 
 import logging
+from collections import Counter
 
 from pydantic import BaseModel, Field
 
 from app.agents.base_agent import LLMAgent
 from app.core.exceptions import LLMError
 from app.core.prompts import load_prompt
-from app.schemas.agents import ExecutionReport, ReportInput
+from app.schemas.agents import ExecutionReport, OperationSummary, ReportInput
 
 logger = logging.getLogger(__name__)
 
@@ -43,21 +44,61 @@ class ResponseAgent(LLMAgent[ReportInput, ExecutionReport]):
             skipped=len(skipped),
             issues=[f"{o.op_id} {o.operation}: {o.message}" for o in [*failed, *skipped]],
         )
+        # Counts always come from data: the model once reported "20 request types" for 16.
+        facts = _facts(ops, completed, failed, skipped)
+        report.summary = facts
         try:
             narrative = await self._structured(
                 f"Reply language: {data.language}\nOriginal request: {data.instruction}\n"
-                f"Plan: {data.plan_summary}\n\nResults:\n"
+                f"Plan: {data.plan_summary}\n\nVerified facts (already shown to the user; do "
+                f"not restate or change any number): {facts}\n\nResults:\n"
                 + "\n".join(o.model_dump_json(exclude_none=True) for o in ops),
                 _Narrative,
             )
-            report.summary = narrative.summary
+            report.summary = f"{facts} {narrative.summary}".strip()
             report.next_steps = narrative.next_steps
-            if narrative.issues:
-                report.issues = narrative.issues
         except LLMError as exc:
             logger.warning("Response agent fell back to a plain summary: %s", exc.message)
-            report.summary = (
-                f"{len(completed)} of {len(ops)} operation(s) completed and verified; "
-                f"{len(failed)} failed, {len(skipped)} skipped."
-            )
         return report
+
+
+_READABLE = {
+    "jsm.create_request_type": "request type",
+    "jsm.create_form": "form",
+    "jsm.create_service_project": "service project",
+    "jira.create_project": "project",
+    "jira.create_issue": "issue",
+    "jsm.create_request": "request",
+    "jira.create_workflow": "workflow",
+    "jira.assign_workflow": "workflow assignment",
+    "jira.create_filter": "filter",
+    "jira.create_dashboard": "dashboard",
+    "jira.create_automation_rule": "automation rule",
+    "jira.create_priority": "priority",
+    "jira.create_custom_field": "custom field",
+    "confluence.create_space": "Confluence space",
+    "confluence.create_page": "Confluence page",
+}
+
+
+def _plural(word: str, n: int) -> str:
+    if n == 1:
+        return word
+    return word[:-1] + "ies" if word.endswith("y") else word + "s"
+
+
+def _facts(
+    ops: list[OperationSummary],
+    completed: list[OperationSummary],
+    failed: list[OperationSummary],
+    skipped: list[OperationSummary],
+) -> str:
+    counts = Counter(o.operation for o in completed)
+    parts = [
+        f"{n} {_plural(_READABLE.get(op, op), n) if op in _READABLE else op}"
+        for op, n in counts.most_common()
+    ]
+    text = f"{len(completed)} of {len(ops)} steps completed and verified"
+    if parts:
+        text += f" ({', '.join(parts)})"
+    return f"{text}; {len(failed)} failed, {len(skipped)} skipped."

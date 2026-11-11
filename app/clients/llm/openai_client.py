@@ -7,6 +7,7 @@ from pydantic import SecretStr
 
 from app.clients.llm.base import LLMClient
 from app.clients.llm.http import post_with_retry
+from app.clients.llm.rate_limiter import RateLimiter
 from app.core.exceptions import LLMError
 
 
@@ -21,10 +22,12 @@ class OpenAIClient(LLMClient):
         base_url: str,
         timeout_seconds: float,
         temperature: float,
+        requests_per_minute: int = 0,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         self.model = model
         self._temperature = temperature
+        self._limiter = RateLimiter(requests_per_minute)
         self._client = httpx.AsyncClient(
             base_url=base_url.rstrip("/"),
             timeout=timeout_seconds,
@@ -51,6 +54,7 @@ class OpenAIClient(LLMClient):
             "/chat/completions",
             error_cls=LLMError,
             provider=self.provider,
+            limiter=self._limiter,
             json=payload,
         )
         choices = response.json().get("choices") or []

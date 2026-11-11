@@ -3,6 +3,7 @@
 from types import SimpleNamespace
 from typing import Any
 
+from app.agents.handlers import assets_handlers
 from app.agents.handlers.base import HandlerContext, same_name
 from app.agents.handlers.storage_format import jira_issues_macro
 from app.agents.verifiers.base import Verifier, check, exists, out
@@ -137,7 +138,55 @@ async def project_space_link(ctx: HandlerContext, p: Any, o: OperationOutcome) -
     return [exists("space link in project description", url in str(proj.get("description") or ""))]
 
 
+async def form(ctx: HandlerContext, p: Any, o: OperationOutcome) -> Checks:
+    body = await ctx.forms.get_form(out(o, "cloud_id"), out(o, "project_key"), out(o, "id"))
+    design = body.get("design") or {}
+    checks = [
+        check("name", p.name, (design.get("settings") or {}).get("name")),
+        check(
+            "questions",
+            len(p.questions),
+            len(design.get("questions") or {}),
+            len(design.get("questions") or {}) >= len(p.questions),
+        ),
+    ]
+    wanted = set(o.outputs.get("request_type_ids") or [])
+    if wanted and not o.reused_existing:
+        shown = set(
+            ((body.get("publish") or {}).get("portal") or {}).get("portalRequestTypeIds") or []
+        )
+        checks.append(check("shown on request types", True, wanted <= shown, wanted <= shown))
+    return checks
+
+
+async def assets_schema(ctx: HandlerContext, p: Any, o: OperationOutcome) -> Checks:
+    schema = await assets_handlers.find_schema(ctx, p.key)
+    checks = [exists("schema", schema is not None, p.key)]
+    if schema:
+        wid = await assets_handlers.workspace_id(ctx)
+        types = {
+            str(t["name"]).casefold()
+            for t in await ctx.assets.list_object_types(wid, str(schema["id"]))
+        }
+        for t in p.object_types:
+            checks.append(exists(f"object type {t.name}", t.name.casefold() in types))
+    return checks
+
+
+async def assets_objects(ctx: HandlerContext, p: Any, o: OperationOutcome) -> Checks:
+    wid, object_type, _ = await assets_handlers.object_type_for(ctx, p.schema_key, p.object_type)
+    checks = []
+    for obj in p.objects:
+        name = str({k.casefold(): v for k, v in obj.attributes.items()}.get("name"))
+        found = await assets_handlers.find_object(ctx, wid, str(object_type["id"]), name)
+        checks.append(exists(f"object {name}", found is not None))
+    return checks
+
+
 VERIFIERS: dict[str, Verifier] = {
+    "jsm.create_form": form,
+    "assets.create_schema": assets_schema,
+    "assets.create_objects": assets_objects,
     "jsm.create_service_project": service_project,
     "jsm.create_request_type": request_type,
     "jsm.create_organization": organization,

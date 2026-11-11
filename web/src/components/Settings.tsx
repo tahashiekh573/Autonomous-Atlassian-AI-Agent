@@ -62,7 +62,7 @@ export function Settings({ connections, activeId, role, onSelect, onChanged }: P
                   </span>
                 </div>
                 <div className="row small">
-                  {["jira", "jsm", "confluence"].map((p) => (
+                  {["jira", "jsm", "confluence", "assets"].map((p) => (
                     <span key={p} className={`badge ${c.capabilities?.products?.[p] ? "ok" : ""}`}>{p}</span>
                   ))}
                   {c.capabilities?.is_jira_admin != null && (

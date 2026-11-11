@@ -139,10 +139,19 @@ class RunEngine:
             plan = result.plan
             assert plan is not None  # noqa: S101
             operations: list[ExecutionOperation] = []
+            step_errors: dict[str, list[str]] = {}
+            for issue in result.issues:
+                if issue.severity == "error" and issue.operation_id:
+                    step_errors.setdefault(issue.operation_id, []).append(issue.message)
             for position, op in enumerate(plan.operations):
                 spec = get_spec(op.operation)
                 risk = spec.risk if spec else "modify"
-                needs = requires_approval(risk, auto) if spec and spec.supported else False
+                invalid = op.id in step_errors
+                needs = (
+                    requires_approval(risk, auto)
+                    if spec and spec.supported and not invalid
+                    else False
+                )
                 check = result.checks.get(op.id)
                 operations.append(
                     ExecutionOperation(
@@ -155,7 +164,12 @@ class RunEngine:
                         supported=bool(spec and spec.supported),
                         requires_approval=needs,
                         approved=False,
-                        status="requires_approval" if needs else "pending",
+                        status="skipped"
+                        if invalid
+                        else ("requires_approval" if needs else "pending"),
+                        message="Not executable: " + " ".join(step_errors[op.id])
+                        if invalid
+                        else None,
                         params=op.params,
                         depends_on=op.depends_on,
                         preflight=check.model_dump(mode="json") if check else None,
@@ -191,7 +205,12 @@ class RunEngine:
         run, credentials, capabilities = await self._load(run_id)
         assert run.plan is not None  # noqa: S101
         plan = ExecutionPlan.model_validate(run.plan)
-        approved = {o.op_id for o in run.operations if o.approved or not o.requires_approval}
+        preskipped = {o.op_id: o.message or "" for o in run.operations if o.status == "skipped"}
+        approved = {
+            o.op_id
+            for o in run.operations
+            if (o.approved or not o.requires_approval) and o.op_id not in preskipped
+        }
         language = (run.intent or {}).get("language", "en")
         instruction = (run.intent or {}).get("normalized_instruction") or run.input_text
         recorder = RunRecorder(self._db, run.created_by)
@@ -204,7 +223,7 @@ class RunEngine:
                 self._settings.verification_retry_delay_seconds,
             )
             result = await ExecutionOrchestrator(agents, recorder).run(
-                run_id, plan, approved, instruction, language
+                run_id, plan, approved, instruction, language, preskipped
             )
         statuses = list(result.statuses.values())
         if any(s == "failed" for s in statuses) or any(s == "skipped" for s in statuses):

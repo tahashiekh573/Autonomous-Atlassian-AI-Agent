@@ -22,6 +22,8 @@ interface Props {
   speak: (text: string) => void;
 }
 
+const MAX_CHARS = 50000; // matches MAX_COMMAND_CHARS in app/schemas/run.py
+
 export function CommandCenter({ connection, role, runId, draft, setDraft, onRunId, speak }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -32,6 +34,7 @@ export function CommandCenter({ connection, role, runId, draft, setDraft, onRunI
     (r) => !!r && ACTIVE.includes(r.status),
   );
 
+  const tooLong = draft.length > MAX_CHARS;
   const canRevise = run && ["needs_clarification", "blocked", "awaiting_approval"].includes(run.status);
   const disabled = !connection || busy || role === "viewer" || (!!run && ACTIVE.includes(run.status));
 
@@ -66,7 +69,7 @@ export function CommandCenter({ connection, role, runId, draft, setDraft, onRunI
 
   return (
     <div className="grid-cmd">
-      <div className="card stack">
+      <div className="card stack sticky">
         <div className="row" style={{ justifyContent: "space-between" }}>
           <h2 style={{ margin: 0 }}>AI command</h2>
           {run && <button className="link" onClick={() => onRunId(null)}>New command</button>}
@@ -96,10 +99,13 @@ export function CommandCenter({ connection, role, runId, draft, setDraft, onRunI
             onError={setError}
             onRecorded={(audio) => connection && void submit(() => api.voiceCommand(connection.id, audio))}
           />
-          <button className="primary" onClick={send} disabled={disabled || !draft.trim()}>
+          <button className="primary" onClick={send} disabled={disabled || !draft.trim() || tooLong}>
             {canRevise ? "Send reply" : "Plan it"}
           </button>
           <span className="small muted">Ctrl+Enter to send</span>
+          <span className="small muted" style={{ marginLeft: "auto", color: tooLong ? "var(--err)" : undefined }}>
+            {draft.length.toLocaleString()} / {MAX_CHARS.toLocaleString()}
+          </span>
         </div>
         {error && <div className="alert err">{error}</div>}
         {!run && (
@@ -114,7 +120,11 @@ export function CommandCenter({ connection, role, runId, draft, setDraft, onRunI
 
       <div>
         {run ? <RunView run={run} role={role} onChange={onRunChange} speak={speak} /> : (
-          <div className="card muted">The execution plan, approvals, live agent status and the verified report appear here.</div>
+          <div className="card empty">
+            <div className="big" aria-hidden="true">🤖</div>
+            <b>Your agents are ready</b>
+            <span>The execution plan, approvals, live agent status and the verified report appear here.</span>
+          </div>
         )}
       </div>
     </div>

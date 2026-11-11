@@ -90,7 +90,9 @@ class ExecutionOrchestrator:
         approved: set[str],
         instruction: str,
         language: Language = "en",
+        preskipped: dict[str, str] | None = None,
     ) -> ExecutionResult:
+        preskipped = preskipped or {}
         state: _State = await self._graph.ainvoke(
             {
                 "run_id": run_id,
@@ -98,8 +100,10 @@ class ExecutionOrchestrator:
                 "approved": sorted(approved),
                 "instruction": instruction,
                 "language": language,
-                "statuses": {op.id: "pending" for op in plan.operations},
-                "messages": {},
+                "statuses": {
+                    op.id: "skipped" if op.id in preskipped else "pending" for op in plan.operations
+                },
+                "messages": dict(preskipped),
                 "outcomes": {},
                 "verifications": {},
                 "resolved": {},

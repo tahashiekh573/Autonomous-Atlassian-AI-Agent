@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import { errorText } from "../hooks";
 import type { Operation, Role, RunDetail } from "../types";
+import { AgentPipeline, RunProgress } from "./AgentPipeline";
 import { human, OpBadge, RiskBadge, RunBadge } from "./Badges";
 
 const ELEVATED = new Set(["destructive", "security"]);
@@ -58,13 +59,22 @@ export function RunView({ run, role, onChange, speak }: Props) {
           <RunBadge status={run.status} />
         </div>
 
+        <AgentPipeline run={run} />
+        <RunProgress run={run} />
+
         {run.current_agent && (
           <div className="agent-live" role="status" aria-live="polite">
             <span className="pulse" aria-hidden="true" />
             <span><b>{human(run.current_agent)}</b> · {run.progress_message}</span>
           </div>
         )}
-        {!run.current_agent && run.status === "planning" && <div className="muted">Queued…</div>}
+        {!run.current_agent && run.status === "planning" && (
+          <div className="stack" style={{ gap: 8 }} aria-label="Loading">
+            <div className="skeleton" style={{ width: "70%" }} />
+            <div className="skeleton" style={{ width: "90%" }} />
+            <div className="skeleton" style={{ width: "55%" }} />
+          </div>
+        )}
 
         {run.plan && <p style={{ margin: 0 }}>{run.plan.summary}</p>}
         {run.intent && run.intent.language !== "en" && (
@@ -93,8 +103,9 @@ export function RunView({ run, role, onChange, speak }: Props) {
         )}
 
         <div className="ops">
-          {run.operations.map((op) => (
+          {run.operations.map((op, i) => (
             <OperationRow
+              index={i}
               key={op.op_id}
               op={op}
               selectable={awaiting && op.requires_approval && !op.approved}
@@ -125,13 +136,14 @@ export function RunView({ run, role, onChange, speak }: Props) {
   );
 }
 
-function OperationRow({ op, selectable, checked, lockedReason, onToggle }: {
-  op: Operation; selectable: boolean; checked: boolean; lockedReason: string | null; onToggle: () => void;
+function OperationRow({ op, index, selectable, checked, lockedReason, onToggle }: {
+  op: Operation; index: number; selectable: boolean; checked: boolean; lockedReason: string | null;
+  onToggle: () => void;
 }) {
   const resource = op.outcome?.resource;
   const params = op.resolved_params ?? op.params;
   return (
-    <div className={`op ${op.status}`}>
+    <div className={`op ${op.status}`} style={{ animationDelay: `${Math.min(index, 20) * 35}ms` }}>
       <div className="op-head">
         {selectable && (
           <input type="checkbox" style={{ width: "auto" }} checked={checked} disabled={!!lockedReason}
@@ -181,7 +193,7 @@ function ReportCard({ run, speak }: { run: RunDetail; speak: (text: string) => v
   const report = run.report!;
   const resources = useMemo(() => report.created_resources, [report]);
   return (
-    <div className="card stack">
+    <div className={`card stack ${report.failed === 0 && report.completed > 0 ? "celebrate" : ""}`}>
       <div className="row" style={{ justifyContent: "space-between" }}>
         <h2 style={{ margin: 0 }}>Execution report</h2>
         <button onClick={() => speak(report.summary)} aria-label="Read the summary aloud">🔊 Read aloud</button>

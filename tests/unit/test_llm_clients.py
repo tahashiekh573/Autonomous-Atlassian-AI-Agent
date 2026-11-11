@@ -102,3 +102,76 @@ async def test_gemini_retries_429_then_succeeds(monkeypatch: pytest.MonkeyPatch)
     )
     client = _gemini(httpx.MockTransport(lambda r: next(responses)))
     assert await client.generate(system="s", prompt="p") == "ok"
+
+
+def _daily_quota_429() -> httpx.Response:
+    return httpx.Response(
+        429,
+        json={
+            "error": {
+                "code": 429,
+                "details": [
+                    {
+                        "violations": [
+                            {
+                                "quotaId": "GenerateRequestsPerDayPerProjectPerModel-FreeTier",
+                                "quotaValue": "20",
+                            }
+                        ]
+                    },
+                    {"retryDelay": "3318s"},
+                ],
+            }
+        },
+    )
+
+
+async def test_daily_quota_switches_to_fallback_model_without_waiting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import app.clients.llm.http as http_mod
+
+    slept: list[float] = []
+
+    async def record_sleep(seconds: float) -> None:
+        slept.append(seconds)
+
+    monkeypatch.setattr(http_mod.asyncio, "sleep", record_sleep)
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        if "primary-model" in request.url.path:
+            return _daily_quota_429()
+        return httpx.Response(200, json={"candidates": [{"content": {"parts": [{"text": "ok"}]}}]})
+
+    client = GeminiClient(
+        SecretStr("k"),
+        model="primary-model",
+        base_url="https://gl.test/v1beta",
+        timeout_seconds=5,
+        temperature=0,
+        fallback_models=["lite-model"],
+        transport=httpx.MockTransport(handler),
+    )
+    assert await client.generate(system="s", prompt="p") == "ok"
+    assert await client.generate(system="s", prompt="p") == "ok"
+    assert slept == []  # a daily quota is never "waited out"
+    assert calls.count("/v1beta/models/primary-model:generateContent") == 1  # remembered
+    assert client.model == "lite-model"
+
+
+async def test_all_models_exhausted_raises_clear_error() -> None:
+    from app.core.exceptions import LLMQuotaExhaustedError
+
+    client = GeminiClient(
+        SecretStr("k"),
+        model="a",
+        base_url="https://gl.test/v1beta",
+        timeout_seconds=5,
+        temperature=0,
+        fallback_models=["b"],
+        transport=httpx.MockTransport(lambda r: _daily_quota_429()),
+    )
+    with pytest.raises(LLMQuotaExhaustedError, match="daily quota"):
+        await client.generate(system="s", prompt="p")

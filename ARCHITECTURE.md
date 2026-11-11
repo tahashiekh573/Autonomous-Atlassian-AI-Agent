@@ -44,7 +44,7 @@ Agents never call each other. Orchestrators pass typed data between them.
 
 ### Operation catalog (`app/schemas/operations/`)
 
-There is a single registry of 63 operations. Each has an owning agent, a risk class, a Pydantic
+There is a single registry of 70 operations (Jira, JSM incl. Forms and Assets, Confluence, integration). Each has an owning agent, a risk class, a Pydantic
 params model, the products it requires, and whether it needs Jira admin rights. The 10
 operations Atlassian exposes no public API for are kept in the catalog with
 `supported=False`, a limitation and a manual alternative. The planner can therefore include

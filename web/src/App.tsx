@@ -9,14 +9,14 @@ import type { CatalogEntry, Connection, User } from "./types";
 
 type View = "command" | Product | "history" | "settings";
 
-const NAV: { id: View; label: string }[] = [
-  { id: "command", label: "Command center" },
-  { id: "jira", label: "Jira" },
-  { id: "jsm", label: "Service Management" },
-  { id: "confluence", label: "Confluence" },
-  { id: "integration", label: "Integrations" },
-  { id: "history", label: "History" },
-  { id: "settings", label: "Settings" },
+const NAV: { id: View; label: string; icon: string }[] = [
+  { id: "command", label: "Command center", icon: "✦" },
+  { id: "jira", label: "Jira", icon: "🧩" },
+  { id: "jsm", label: "Service Management", icon: "🛟" },
+  { id: "confluence", label: "Confluence", icon: "📘" },
+  { id: "integration", label: "Integrations", icon: "🔗" },
+  { id: "history", label: "History", icon: "🕘" },
+  { id: "settings", label: "Settings", icon: "⚙️" },
 ];
 
 const ACTIVE_CONN_KEY = "aaa.connection";
@@ -107,10 +107,13 @@ export default function App() {
   return (
     <div className="layout">
       <nav className="sidebar" aria-label="Main">
-        <div className="brand">Atlassian AI Admin<small>Jira · JSM · Confluence</small></div>
+        <div className="brand">
+          <div className="brand-logo" aria-hidden="true">AI</div>
+          <div><b>Atlassian AI Admin</b><small>Jira · JSM · Confluence</small></div>
+        </div>
         {NAV.map((n) => (
           <button key={n.id} className={`nav-item ${view === n.id ? "active" : ""}`} aria-current={view === n.id ? "page" : undefined}
-            onClick={() => setView(n.id)}>{n.label}</button>
+            onClick={() => setView(n.id)}><span className="ico" aria-hidden="true">{n.icon}</span>{n.label}</button>
         ))}
         <div className="sidebar-footer">
           <div>
