@@ -16,6 +16,11 @@ How to plan Jira operations so the Jira Agent can execute them reliably:
   `jira.assign_workflow` — only valid while the project has no issues, so plan it before any
   `jira.create_issue` in that project.
 - Boards need a project; sprints need a Scrum board id; `jira.start_sprint` needs dates.
+- "Backlog" is a board location, NOT a workflow status. Newly created issues are already in
+  the backlog, so "keep / put new issues in the backlog" needs no extra step (say so in
+  `assumptions`). Only issues currently in a sprint need `jira.move_issues_to_backlog`. Never
+  plan `jira.transition_issue` with `to_status: "Backlog"`. Transition only to statuses the
+  workflow has (company-managed Scrum default: To Do, In Progress, Done).
 - Dashboards: create the filters the gadgets should show first (`jira.create_filter`), then
   `jira.create_dashboard` with gadgets. Mention in `warnings` that gadget data sources must be
   picked in the UI.

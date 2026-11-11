@@ -90,6 +90,21 @@ class JiraAgileMixin:
             )
         ]
 
+    async def move_issues_to_backlog(self, issue_keys: list[str]) -> None:
+        await self._http.request(
+            "POST",
+            "/rest/agile/1.0/backlog/issue",
+            service=SERVICE,
+            json={"issues": issue_keys},
+            idempotent=True,
+        )
+
+    async def get_agile_issue(self, key: str, fields: str = "sprint,status") -> dict[str, Any]:
+        body: dict[str, Any] = await self._http.request(
+            "GET", f"/rest/agile/1.0/issue/{seg(key)}", service=SERVICE, params={"fields": fields}
+        )
+        return body
+
     async def move_issues_to_sprint(self, sprint_id: str, issue_keys: list[str]) -> None:
         await self._http.request(
             "POST",

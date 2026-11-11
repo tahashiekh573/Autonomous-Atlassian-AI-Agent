@@ -70,3 +70,35 @@ async def test_openai_compatible_client() -> None:
         transport=httpx.MockTransport(handler),
     )
     assert await client.generate(system="s", prompt="p", json_mode=True) == "{}"
+
+
+def test_rate_limit_delay_uses_gemini_retry_info() -> None:
+    from app.clients.llm.http import _retry_delay
+
+    body = {
+        "error": {
+            "code": 429,
+            "details": [{"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": "27s"}],
+        }
+    }
+    assert _retry_delay(httpx.Response(429, json=body), 0) == 28.0
+    assert _retry_delay(httpx.Response(429, headers={"Retry-After": "5"}), 0) == 5.0
+    assert _retry_delay(httpx.Response(429, json={}), 1) == 20.0
+    assert _retry_delay(httpx.Response(429, json={}), 5) == 60.0
+
+
+async def test_gemini_retries_429_then_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:
+    import app.clients.llm.http as http_mod
+
+    async def no_sleep(_: float) -> None:
+        return None
+
+    monkeypatch.setattr(http_mod.asyncio, "sleep", no_sleep)
+    responses = iter(
+        [
+            httpx.Response(429, json={"error": {"details": [{"retryDelay": "3s"}]}}),
+            httpx.Response(200, json={"candidates": [{"content": {"parts": [{"text": "ok"}]}}]}),
+        ]
+    )
+    client = _gemini(httpx.MockTransport(lambda r: next(responses)))
+    assert await client.generate(system="s", prompt="p") == "ok"

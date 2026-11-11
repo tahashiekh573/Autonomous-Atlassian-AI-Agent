@@ -52,6 +52,7 @@ class JiraAgent(OperationAgent):
         "jira.create_sprint": Handler(jira_agile.create_sprint),
         "jira.start_sprint": Handler(jira_agile.start_sprint),
         "jira.move_issues_to_sprint": Handler(jira_agile.move_issues_to_sprint),
+        "jira.move_issues_to_backlog": Handler(jira_agile.move_issues_to_backlog),
         "jira.create_dashboard": Handler(jira_dashboards.create_dashboard),
         "jira.generate_report": Handler(jira_reports.generate_report),
         "jira.create_automation_rule": Handler(jira_automation.create_automation_rule),

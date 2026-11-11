@@ -47,7 +47,10 @@ class JiraAutomationMixin:
                 rules.extend(body.get("data") or [])
                 nxt = str((body.get("links") or {}).get("next") or "")
                 # Only follow site-relative links so credentials never go to another host.
-                path, params = (nxt if nxt.startswith("/") else ""), None
+                path, params = (
+                    (nxt if nxt.startswith("/") and not nxt.startswith("//") else ""),
+                    None,
+                )
         except AtlassianNotFoundError:
             return rules
         return rules

@@ -106,6 +106,20 @@ def validate_plan(
                 )
             )
             continue
+        if (
+            op.operation == "jira.transition_issue"
+            and str(op.params.get("to_status", "")).strip().casefold() == "backlog"
+        ):
+            issues.append(
+                PlanIssue(
+                    severity="error",
+                    operation_id=op.id,
+                    message=(
+                        "'Backlog' is not a status. New issues are already in the backlog; use "
+                        "jira.move_issues_to_backlog for issues that are in a sprint."
+                    ),
+                )
+            )
         for err in _param_errors(spec.params, op.params):
             issues.append(
                 PlanIssue(severity="error", operation_id=op.id, message=f"Invalid param {err}")

@@ -10,6 +10,7 @@ from app.schemas.operations.jira_ops import (
     CreateBoardParams,
     CreateFilterParams,
     CreateSprintParams,
+    MoveIssuesToBacklogParams,
     MoveIssuesToSprintParams,
     StartSprintParams,
 )
@@ -129,4 +130,25 @@ async def move_issues_to_sprint(ctx: HandlerContext, p: MoveIssuesToSprintParams
     return HandlerResult(
         message=f"Moved {len(p.issue_keys)} issue(s) to sprint {p.sprint_id}.",
         outputs={"sprint_id": p.sprint_id, "issue_keys": p.issue_keys},
+    )
+
+
+async def move_issues_to_backlog(
+    ctx: HandlerContext, p: MoveIssuesToBacklogParams
+) -> HandlerResult:
+    in_sprint = []
+    for key in p.issue_keys:
+        sprint = (await ctx.jira.get_agile_issue(key))["fields"].get("sprint")
+        if sprint:
+            in_sprint.append(key)
+    if not in_sprint:
+        return HandlerResult(
+            message=f"All {len(p.issue_keys)} issue(s) are already in the backlog.",
+            outputs={"issue_keys": p.issue_keys},
+            reused_existing=True,
+        )
+    await ctx.jira.move_issues_to_backlog(in_sprint)
+    return HandlerResult(
+        message=f"Moved {len(in_sprint)} issue(s) from their sprint to the backlog.",
+        outputs={"issue_keys": p.issue_keys},
     )

@@ -194,5 +194,7 @@ class AtlassianHttpClient:
                 yielded += 1
                 if max_items is not None and yielded >= max_items:
                     return
-            next_path = (body.get("_links") or {}).get("next")
+            nxt = str((body.get("_links") or {}).get("next") or "")
+            # Only follow site-relative links: an absolute URL could send credentials elsewhere.
+            next_path = nxt if nxt.startswith("/") and not nxt.startswith("//") else None
             next_params = None  # the next link already carries the query string

@@ -213,6 +213,10 @@ class MoveIssuesToSprintParams(Params):
     issue_keys: list[IssueKey] = Field(min_length=1, max_length=50)
 
 
+class MoveIssuesToBacklogParams(Params):
+    issue_keys: list[IssueKey] = Field(min_length=1, max_length=50)
+
+
 class GadgetDef(Params):
     type: Literal[
         "filter_results",
@@ -419,6 +423,14 @@ SPECS: list[OperationSpec] = [
         "modify",
         "Move issues into a sprint.",
         MoveIssuesToSprintParams,
+    ),
+    OperationSpec(
+        "jira.move_issues_to_backlog",
+        "jira",
+        "modify",
+        "Take issues out of their sprint and put them back in the backlog. New issues are "
+        "already in the backlog; Backlog is a board location, not a workflow status.",
+        MoveIssuesToBacklogParams,
     ),
     OperationSpec(
         "jira.create_dashboard",

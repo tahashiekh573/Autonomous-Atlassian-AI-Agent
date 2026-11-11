@@ -39,6 +39,12 @@ async def _common_fields(
     return fields
 
 
+BACKLOG_IS_NOT_A_STATUS = (
+    "'Backlog' is a board location, not a workflow status: issues outside a sprint are already "
+    "in the backlog. Use jira.move_issues_to_backlog to take issues out of a sprint."
+)
+
+
 async def check_create_issue(ctx: HandlerContext, p: CreateIssueParams) -> CheckResult:
     project = await ctx.jira.find_project(p.project_key)
     if project is None:
@@ -107,6 +113,8 @@ async def transition_issue(ctx: HandlerContext, p: TransitionIssueParams) -> Han
             outputs={"key": p.issue_key},
             reused_existing=True,
         )
+    if same_name(p.to_status, "backlog"):
+        raise OperationInputError(BACKLOG_IS_NOT_A_STATUS)
     transitions = await ctx.jira.get_transitions(p.issue_key)
     match = next(
         (

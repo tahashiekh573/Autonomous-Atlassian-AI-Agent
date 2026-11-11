@@ -189,3 +189,20 @@ async def test_paginate_cursor_follows_next_link(fake: FakeAtlassian, sleep: Sle
 )
 def test_extract_error_message_formats(body: dict[str, object], expected: str) -> None:
     assert extract_error_message(httpx.Response(400, json=body)) == expected
+
+
+async def test_paginate_cursor_ignores_absolute_next_links(
+    fake: FakeAtlassian, sleep: SleepRecorder
+) -> None:
+    fake.add(
+        "GET",
+        "/wiki/api/v2/spaces",
+        json={
+            "results": [{"key": "A"}],
+            "_links": {"next": "https://evil.example.com/steal?cursor=x"},
+        },
+    )
+    client = make_client(fake, sleep)
+    keys = [s["key"] async for s in client.paginate_cursor("/wiki/api/v2/spaces", service="c")]
+    assert keys == ["A"]
+    assert all(c.url.host == "acme.atlassian.net" for c in fake.calls)

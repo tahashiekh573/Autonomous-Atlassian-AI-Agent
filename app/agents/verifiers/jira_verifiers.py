@@ -173,6 +173,14 @@ async def sprint_issues(ctx: HandlerContext, p: Any, o: OperationOutcome) -> Che
     return [check("issues in sprint", True, set(p.issue_keys) <= keys, set(p.issue_keys) <= keys)]
 
 
+async def in_backlog(ctx: HandlerContext, p: Any, o: OperationOutcome) -> Checks:
+    checks = []
+    for key in p.issue_keys:
+        sprint = (await ctx.jira.get_agile_issue(key))["fields"].get("sprint")
+        checks.append(check(f"{key} in backlog", None, (sprint or {}).get("name"), sprint is None))
+    return checks
+
+
 async def dashboard(ctx: HandlerContext, p: Any, o: OperationOutcome) -> Checks:
     d = await ctx.jira.get_dashboard(out(o, "id"))
     checks = [check("name", p.name, d.get("name"))]
@@ -213,6 +221,7 @@ VERIFIERS: dict[str, Verifier] = {
     "jira.create_sprint": sprint,
     "jira.start_sprint": sprint_started,
     "jira.move_issues_to_sprint": sprint_issues,
+    "jira.move_issues_to_backlog": in_backlog,
     "jira.create_dashboard": dashboard,
     "jira.create_automation_rule": automation,
 }

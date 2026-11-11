@@ -110,3 +110,16 @@ def test_approval_policy() -> None:
     assert requires_approval("security", ["security"]) is True
     assert required_role("destructive") == "admin"
     assert required_role("create") == "operator"
+
+
+def test_transition_to_backlog_is_blocked_at_plan_time() -> None:
+    plan = _plan(
+        PlannedOperation(
+            id="s1",
+            operation="jira.transition_issue",
+            description="",
+            params={"issue_key": "AIDEMO-2", "to_status": "Backlog"},
+        )
+    )
+    errors = [i for i in validate_plan(plan, CAPS, 40) if i.severity == "error"]
+    assert errors and "move_issues_to_backlog" in errors[0].message
