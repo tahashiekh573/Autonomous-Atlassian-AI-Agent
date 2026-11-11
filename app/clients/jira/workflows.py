@@ -80,6 +80,19 @@ class JiraWorkflowsMixin:
         )
         return body
 
+    async def get_issue_type_workflow(self, project_id: str, issue_type_id: str) -> dict[str, Any]:
+        """Bulk get by project + issue type (how team-managed workflows are addressed)."""
+        body: dict[str, Any] = await self._http.request(
+            "POST",
+            "/rest/api/3/workflows",
+            service=SERVICE,
+            json={
+                "projectAndIssueTypes": [{"projectId": project_id, "issueTypeId": issue_type_id}]
+            },
+            idempotent=True,
+        )
+        return body
+
     async def validate_workflow_update(self, payload: dict[str, Any]) -> list[dict[str, Any]]:
         body = await self._http.request(
             "POST",

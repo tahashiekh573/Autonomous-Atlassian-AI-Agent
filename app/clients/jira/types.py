@@ -1,5 +1,7 @@
 """Typed views of the Jira REST API v3 responses this client uses."""
 
+from typing import Any
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -27,3 +29,4 @@ class JiraProject(_JiraModel):
     name: str
     project_type_key: str | None = Field(default=None, alias="projectTypeKey")
     style: str | None = None  # "classic" (company-managed) or "next-gen" (team-managed)
+    issue_types: list[dict[str, Any]] = Field(default_factory=list, alias="issueTypes")

@@ -17,7 +17,10 @@ class JiraProjectsMixin:
         return [
             JiraProject.model_validate(item)
             async for item in self._http.paginate_offset(
-                "/rest/api/3/project/search", service=SERVICE, max_items=max_items
+                "/rest/api/3/project/search",
+                service=SERVICE,
+                params={"expand": "issueTypes"},
+                max_items=max_items,
             )
         ]
 

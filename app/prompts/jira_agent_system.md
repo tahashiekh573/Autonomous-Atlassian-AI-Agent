@@ -11,7 +11,17 @@ How to plan Jira operations so the Jira Agent can execute them reliably:
   Sub-tasks need `issue_type: "Sub-task"` and a parent.
 - Timelines: set `start_date` / `due_date` on epics and issues. Dependencies use
   `jira.link_issues` with `link_type: "Blocks"` (from_issue blocks to_issue).
-- Apply workflows to a project with ONE `jira.configure_workflow_scheme` step listing every
+- **Team-managed projects** (`"managed": "team"` under Existing resources) have no workflow
+  schemes, issue type schemes or shared workflows: each issue type owns its workflow. For them
+  use ONE `jira.set_issue_type_workflow` step per issue type (all statuses with categories,
+  initial status, named transitions incl. reopen) — never `jira.create_workflow`,
+  `jira.configure_workflow_scheme`, `jira.assign_workflow` or `jira.configure_issue_types`.
+  Issue types of team-managed projects cannot be created through the API: use an existing one
+  from that project's `issue_types` (pick the closest, e.g. the main request/incident type) and
+  say in `warnings` which type you chose. The workflow name is fixed by Jira; pass the requested
+  name as `workflow_label`. To prove transitions work, create a sample issue of that type and
+  `jira.transition_issue` it through the flow.
+- Apply workflows to a (company-managed) project with ONE `jira.configure_workflow_scheme` step listing every
   workflow → issue types mapping (works even when the project already has issues; statuses are
   migrated). Use `jira.update_workflow` to add missing transitions (reopen, rollback, failed) to an
   existing workflow. `jira.assign_workflow` is only for a single issue type.

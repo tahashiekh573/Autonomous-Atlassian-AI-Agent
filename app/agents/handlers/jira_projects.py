@@ -34,7 +34,19 @@ async def list_projects(ctx: HandlerContext, p: ListProjectsParams) -> HandlerRe
         message=f"{len(projects)} project(s).",
         outputs={
             "projects": [
-                {"id": x.id, "key": x.key, "name": x.name, "type": x.project_type_key}
+                {
+                    "id": x.id,
+                    "key": x.key,
+                    "name": x.name,
+                    "type": x.project_type_key,
+                    "managed": "team" if x.style == "next-gen" else "company",
+                    # team-managed issue types cannot be created via the API: plan with these
+                    **(
+                        {"issue_types": [str(t.get("name")) for t in x.issue_types]}
+                        if x.style == "next-gen"
+                        else {}
+                    ),
+                }
                 for x in projects
             ]
         },

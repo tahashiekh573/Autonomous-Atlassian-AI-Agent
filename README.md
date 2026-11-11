@@ -54,7 +54,7 @@ site, and only after you approve them.
 | **Cross-product** | Link issues to Confluence pages, turn JSM incidents into development bugs and link them, embed live Jira issue lists in pages, connect a project to its documentation space |
 | **Reporting** | Project summary, workload, created-vs-resolved, sprint progress, SLA breached/met counts, request volume |
 
-The catalog has **70 operations**. 10 of them are features Atlassian exposes **no public API**
+The catalog has **71 operations**. 10 of them are features Atlassian exposes **no public API**
 for (for example SLA configuration and queue creation). The agent never fakes these: it reports
 them as skipped and gives you the exact manual steps. See
 [What Atlassian's API cannot do](#what-atlassians-api-cannot-do).

@@ -237,11 +237,17 @@ class JiraConfigurationMixin:
         )
         return body
 
-    async def search_statuses(self, name: str) -> list[dict[str, Any]]:
+    async def search_statuses(
+        self, name: str, project_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Statuses matching `name`; with `project_id`, that team-managed project's statuses."""
+        params: dict[str, Any] = {"searchString": name}
+        if project_id:
+            params["projectId"] = project_id
         return [
             item
             async for item in self._http.paginate_offset(
-                "/rest/api/3/statuses/search", service=SERVICE, params={"searchString": name}
+                "/rest/api/3/statuses/search", service=SERVICE, params=params
             )
         ]
 

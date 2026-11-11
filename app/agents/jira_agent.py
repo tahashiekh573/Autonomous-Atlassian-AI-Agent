@@ -10,6 +10,7 @@ from app.agents.handlers import (
     jira_issues,
     jira_projects,
     jira_reports,
+    jira_team_workflows,
     jira_workflow_schemes,
     jira_workflows,
 )
@@ -44,6 +45,10 @@ class JiraAgent(OperationAgent):
         "jira.assign_workflow": Handler(jira_workflows.assign_workflow),
         "jira.configure_workflow_scheme": Handler(jira_workflow_schemes.configure_workflow_scheme),
         "jira.update_workflow": Handler(jira_workflow_schemes.update_workflow),
+        "jira.set_issue_type_workflow": Handler(
+            jira_team_workflows.set_issue_type_workflow,
+            jira_team_workflows.check_set_issue_type_workflow,
+        ),
         "jira.create_issue": Handler(jira_issues.create_issue, jira_issues.check_create_issue),
         "jira.update_issue": Handler(jira_issues.update_issue),
         "jira.transition_issue": Handler(jira_issues.transition_issue),

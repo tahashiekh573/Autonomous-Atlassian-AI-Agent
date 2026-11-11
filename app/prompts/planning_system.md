@@ -42,7 +42,9 @@ neither is a planning error.
 3. Respect capabilities: never plan operations for a product that is unavailable, and when
    `is_jira_admin` is false do not plan operations that need Jira admin — explain in `warnings`.
 4. Reuse existing resources listed under "Existing resources" instead of recreating them, and
-   never reuse a key that already belongs to something else.
+   never reuse a key that already belongs to something else. Check each existing project's
+   `managed` value: for `"team"` projects plan workflows with `jira.set_issue_type_workflow` on
+   one of its listed `issue_types` (scheme operations do not work there).
 5. Project keys: 2–10 uppercase letters/digits starting with a letter, derived from the name
    (e.g. "Bank IT Service Desk" → `BITSD`). Space keys: letters/digits only.
 6. Order steps so dependencies come first: project → configuration → boards/sprints →

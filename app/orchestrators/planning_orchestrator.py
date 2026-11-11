@@ -139,7 +139,15 @@ class PlanningOrchestrator:
             workspace[f"{product}_{key}"] = [
                 {
                     k: i.get(k)
-                    for k in ("key", "name", "id", "project_key", "project_name")
+                    for k in (
+                        "key",
+                        "name",
+                        "id",
+                        "project_key",
+                        "project_name",
+                        "managed",
+                        "issue_types",
+                    )
                     if i.get(k)
                 }
                 for i in items

@@ -6,6 +6,7 @@ from app.agents.handlers.base import HandlerContext, same_name
 from app.agents.handlers.jira_common import resolve_field_id
 from app.agents.handlers.jira_config import find_global_status
 from app.agents.handlers.jira_issues import link_exists
+from app.agents.handlers.jira_team_workflows import live_shape
 from app.agents.verifiers.base import Verifier, check, exists, out
 from app.clients.jira.adf import adf_to_text
 from app.core.exceptions import AtlassianNotFoundError
@@ -142,6 +143,13 @@ async def updated_workflow(ctx: HandlerContext, p: Any, o: OperationOutcome) -> 
     return checks
 
 
+async def issue_type_workflow(ctx: HandlerContext, p: Any, o: OperationOutcome) -> Checks:
+    statuses, transitions = await live_shape(ctx, p)
+    return [exists(f"status {s.name}", s.name.casefold() in statuses) for s in p.statuses] + [
+        exists(f"transition {t.name}", t.name.casefold() in transitions) for t in p.transitions
+    ]
+
+
 async def issue(ctx: HandlerContext, p: Any, o: OperationOutcome) -> Checks:
     key = out(o, "key") or p.issue_key
     data = (
@@ -247,6 +255,7 @@ VERIFIERS: dict[str, Verifier] = {
     "jira.assign_workflow": workflow_scheme,
     "jira.configure_workflow_scheme": configured_scheme,
     "jira.update_workflow": updated_workflow,
+    "jira.set_issue_type_workflow": issue_type_workflow,
     "jira.create_issue": issue,
     "jira.update_issue": issue,
     "jira.transition_issue": transition,

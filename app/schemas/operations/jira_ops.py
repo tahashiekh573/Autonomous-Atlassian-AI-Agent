@@ -164,6 +164,26 @@ class UpdateWorkflowParams(Params):
     )
 
 
+class SetIssueTypeWorkflowParams(Params):
+    """Team-managed projects: each issue type owns a workflow; replace statuses + transitions."""
+
+    project_key: ProjectKey
+    issue_type: str = Field(description="Existing issue type in the project")
+    statuses: list[StatusDef] = Field(min_length=1, description="All statuses, in order")
+    initial_status: str | None = Field(
+        default=None, description="Status new issues start in (default: first status)"
+    )
+    transitions: list[TransitionDef] = Field(
+        default_factory=list, description="Named transitions incl. reopen; from_statuses=[] = any"
+    )
+    allow_any_to_any: bool = Field(
+        default=False, description="Also allow moving from any status to any status"
+    )
+    workflow_label: str | None = Field(
+        default=None, description="Shown as the workflow description (names are fixed by Jira)"
+    )
+
+
 class CreateIssueParams(Params):
     project_key: ProjectKey
     issue_type: str = Field(description="e.g. Epic, Story, Task, Bug, Sub-task")
@@ -447,6 +467,17 @@ SPECS: list[OperationSpec] = [
         "(approvers field, required approvals, approve/decline transitions) to a workflow.",
         UpdateWorkflowParams,
         needs_jira_admin=True,
+    ),
+    OperationSpec(
+        "jira.set_issue_type_workflow",
+        "jira",
+        "modify",
+        "TEAM-MANAGED projects (Jira or JSM): set the workflow of one existing issue type - its "
+        "statuses, initial status and named transitions (reopen etc.). Existing issues in removed "
+        "statuses are moved to a status of the same category. Use instead of create_workflow / "
+        "configure_workflow_scheme / configure_issue_types, which only work for company-managed "
+        "projects.",
+        SetIssueTypeWorkflowParams,
     ),
     OperationSpec(
         "jira.create_issue",
