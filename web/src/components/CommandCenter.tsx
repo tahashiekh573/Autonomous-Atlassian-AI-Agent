@@ -3,6 +3,7 @@ import { api } from "../api";
 import { errorText, useLoad } from "../hooks";
 import { ACTIVE, type Connection, type Role, type RunDetail } from "../types";
 import { RunView } from "./RunView";
+import { liveEnabled, liveTabOpen, openLiveSite, setLiveEnabled, useLiveFollow } from "../liveSite";
 import { VoiceButton } from "./VoiceButton";
 import { Icon, type IconName } from "./Icons";
 
@@ -31,11 +32,23 @@ export function CommandCenter({ connection, role, runId, draft, setDraft, onRunI
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tick, setTick] = useState(0); // bumping it restarts live polling
+  const [liveOn, setLiveOn] = useState(liveEnabled());
+  const [liveBlocked, setLiveBlocked] = useState(false);
   const { data: run, setData: setRun } = useLoad<RunDetail | null>(
     () => (runId ? api.run(runId) : Promise.resolve(null)),
     [runId, tick],
     (r) => !!r && ACTIVE.includes(r.status),
   );
+
+  const site = connection?.site_url ?? null;
+  const showing = useLiveFollow(liveOn ? run ?? null : null, site);
+  const runActive = !!run && ACTIVE.includes(run.status);
+
+  // Called from click handlers only: browsers allow opening a tab during a user gesture.
+  function openLive() {
+    if (!liveOn || !site) return;
+    setLiveBlocked(!openLiveSite(`${site}/jira/your-work`));
+  }
 
   const tooLong = draft.length > MAX_CHARS;
   const canRevise = run && ["needs_clarification", "blocked", "awaiting_approval"].includes(run.status);
@@ -60,6 +73,7 @@ export function CommandCenter({ connection, role, runId, draft, setDraft, onRunI
   function send() {
     const text = draft.trim();
     if (!text || !connection) return;
+    openLive();
     if (run && canRevise) void submit(() => api.clarify(run.id, text));
     else void submit(() => api.createRun(connection.id, text));
   }
@@ -111,6 +125,22 @@ export function CommandCenter({ connection, role, runId, draft, setDraft, onRunI
           </span>
         </div>
         {error && <div className="alert err">{error}</div>}
+        <label className="live-toggle">
+          <input type="checkbox" checked={liveOn}
+            onChange={(e) => { setLiveOn(e.target.checked); setLiveEnabled(e.target.checked); }} />
+          <span>Watch it live on my site <span className="muted small">(opens your Atlassian site in a new tab and follows every change)</span></span>
+        </label>
+        {liveOn && run && (runActive || showing) && (
+          <div className="live-bar" aria-live="polite">
+            <span className={`pulse ${runActive ? "" : "idle"}`} aria-hidden="true" />
+            <span className="live-text">
+              {liveTabOpen()
+                ? showing ? <>Showing on your site: <a href={showing} target="atlassian-live" rel="noreferrer">{showing.replace(/^https?:\/\/[^/]+/, "")}</a></> : "Your site is open in the live tab — changes appear there as each step finishes."
+                : liveBlocked ? "Your browser blocked the live tab." : "Live tab is closed."}
+            </span>
+            {!liveTabOpen() && <button className="link" onClick={openLive}>Open live tab</button>}
+          </div>
+        )}
         {!run && (
           <div>
             <div className="small muted" style={{ marginBottom: 6 }}>Try:</div>
@@ -122,7 +152,7 @@ export function CommandCenter({ connection, role, runId, draft, setDraft, onRunI
       </div>
 
       <div>
-        {run ? <RunView run={run} role={role} onChange={onRunChange} speak={speak} /> : (
+        {run ? <RunView run={run} role={role} onChange={onRunChange} speak={speak} onExecuteClick={openLive} /> : (
           <div className="card empty">
             <div className="orbit" aria-hidden="true">
               <div className="orbit-core"><Icon name="bolt" size={26} /></div>

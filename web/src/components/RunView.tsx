@@ -12,9 +12,10 @@ interface Props {
   role: Role;
   onChange: (run: RunDetail) => void;
   speak: (text: string) => void;
+  onExecuteClick?: () => void; // e.g. open the live site tab (needs the click gesture)
 }
 
-export function RunView({ run, role, onChange, speak }: Props) {
+export function RunView({ run, role, onChange, speak, onExecuteClick }: Props) {
   const awaiting = run.status === "awaiting_approval";
   const pending = run.operations.filter((o) => o.requires_approval && !o.approved);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -119,7 +120,7 @@ export function RunView({ run, role, onChange, speak }: Props) {
         {awaiting && (
           <div className="row">
             <button className="primary" disabled={busy || selected.size === 0 || role === "viewer"}
-              onClick={() => act(() => api.approve(run.id, [...selected]))}>
+              onClick={() => { onExecuteClick?.(); void act(() => api.approve(run.id, [...selected])); }}>
               Approve {selected.size} step{selected.size === 1 ? "" : "s"} and execute
             </button>
             <button disabled={busy || role === "viewer"} onClick={() => act(() => api.reject(run.id, "Rejected in dashboard"))}>

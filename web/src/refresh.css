@@ -190,3 +190,17 @@ svg { display: block; flex: none; }
 .layout, .login { position: relative; z-index: 1; }
 /* let the animation show through the main canvas area */
 .sidebar { background: color-mix(in srgb, var(--surface) 82%, transparent); }
+
+/* =====================================================================
+   Watch it live on my site (liveSite.ts)
+   ===================================================================== */
+.live-toggle { display: flex; align-items: flex-start; gap: 9px; font-weight: 600; cursor: pointer; }
+.live-toggle input { width: 16px; height: 16px; margin: 2px 0 0; accent-color: var(--accent); flex: none; }
+.live-toggle .small { font-weight: 400; }
+.live-bar { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px;
+  background: color-mix(in srgb, var(--ok) 12%, var(--surface-solid)); color: var(--text);
+  border: 1px solid color-mix(in srgb, var(--ok) 35%, transparent); animation: fadeUp .3s var(--ease) both; }
+.live-bar .pulse { color: var(--ok); }
+.live-bar .pulse.idle { animation: none; opacity: .6; }
+.live-text { flex: 1; min-width: 0; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.live-text a { font-family: "JetBrains Mono", Consolas, monospace; font-size: 12px; }
