@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, ApiError, setToken } from "./api";
 import { CommandCenter } from "./components/CommandCenter";
+import { Icon, type IconName } from "./components/Icons";
 import { History } from "./components/History";
 import { Login } from "./components/Login";
 import { ProductSection, type Product } from "./components/ProductSection";
@@ -9,15 +10,35 @@ import type { CatalogEntry, Connection, User } from "./types";
 
 type View = "command" | Product | "history" | "settings";
 
-const NAV: { id: View; label: string; icon: string }[] = [
-  { id: "command", label: "Command center", icon: "✦" },
-  { id: "jira", label: "Jira", icon: "🧩" },
-  { id: "jsm", label: "Service Management", icon: "🛟" },
-  { id: "confluence", label: "Confluence", icon: "📘" },
-  { id: "integration", label: "Integrations", icon: "🔗" },
-  { id: "history", label: "History", icon: "🕘" },
-  { id: "settings", label: "Settings", icon: "⚙️" },
+const NAV: { id: View; label: string; icon: IconName; tint: string }[] = [
+  { id: "command", label: "Command center", icon: "spark", tint: "#7c5cff" },
+  { id: "jira", label: "Jira", icon: "jira", tint: "#2684ff" },
+  { id: "jsm", label: "Service Management", icon: "lifebuoy", tint: "#00b8a9" },
+  { id: "confluence", label: "Confluence", icon: "book", tint: "#1d7afc" },
+  { id: "integration", label: "Integrations", icon: "link", tint: "#f5a623" },
+  { id: "history", label: "History", icon: "clock", tint: "#e5487b" },
+  { id: "settings", label: "Settings", icon: "gear", tint: "#8a94a6" },
 ];
+
+const THEME_KEY = "aaa.theme";
+type Theme = "light" | "dark" | null;
+
+function storedTheme(): Theme {
+  try { const t = localStorage.getItem(THEME_KEY); return t === "light" || t === "dark" ? t : null; } catch { return null; }
+}
+
+function isDark(theme: Theme): boolean {
+  return theme ? theme === "dark" : window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false;
+}
+
+function greeting(): string {
+  const h = new Date().getHours();
+  return h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
+}
+
+function Aurora() {
+  return <div className="aurora" aria-hidden="true"><span /><span /><span /></div>;
+}
 
 const ACTIVE_CONN_KEY = "aaa.connection";
 
@@ -38,6 +59,14 @@ export default function App() {
   const [tts, setTts] = useState<string | null>(null);
 
   const [bootError, setBootError] = useState<string | null>(null);
+  const [theme, setTheme] = useState<Theme>(storedTheme());
+
+  useEffect(() => {
+    if (theme) document.documentElement.dataset.theme = theme;
+    else delete document.documentElement.dataset.theme;
+    try { if (theme) localStorage.setItem(THEME_KEY, theme); } catch { /* optional */ }
+  }, [theme]);
+  const toggleTheme = () => setTheme(isDark(theme) ? "light" : "dark");
 
   const checkAuth = useCallback(() => {
     setBootError(null);
@@ -90,7 +119,8 @@ export default function App() {
   if (bootError) {
     return (
       <div className="login">
-        <div className="card stack" role="alert">
+        <Aurora />
+        <div className="card stack login-card" role="alert">
           <h1>Backend not reachable</h1>
           <p className="muted" style={{ margin: 0 }}>{bootError}</p>
           <pre>cd "F:\Autonomous Atlassian AI Agent"{"\n"}npm start</pre>
@@ -99,21 +129,24 @@ export default function App() {
       </div>
     );
   }
-  if (!user) return <Login onLogin={setUser} />;
+  if (!user) return <><Aurora /><Login onLogin={setUser} /></>;
 
   const connection = connections.find((c) => c.id === activeId) ?? null;
   const useCommand = (text: string) => { setDraft(text); setRunId(null); setView("command"); };
 
   return (
     <div className="layout">
+      <Aurora />
       <nav className="sidebar" aria-label="Main">
         <div className="brand">
-          <div className="brand-logo" aria-hidden="true">AI</div>
+          <div className="brand-logo" aria-hidden="true"><Icon name="bolt" size={18} /></div>
           <div><b>Atlassian AI Admin</b><small>Jira · JSM · Confluence</small></div>
         </div>
+        <div className="nav-label">Workspace</div>
         {NAV.map((n) => (
           <button key={n.id} className={`nav-item ${view === n.id ? "active" : ""}`} aria-current={view === n.id ? "page" : undefined}
-            onClick={() => setView(n.id)}><span className="ico" aria-hidden="true">{n.icon}</span>{n.label}</button>
+            style={{ "--tint": n.tint } as React.CSSProperties}
+            onClick={() => setView(n.id)}><span className="ico"><Icon name={n.icon} /></span>{n.label}</button>
         ))}
         <div className="sidebar-footer">
           <div>
@@ -123,19 +156,37 @@ export default function App() {
             {connection ? new URL(connection.site_url).host : "Not connected"}
           </div>
           <div>API: <span className={`badge ${health === "ok" ? "ok" : "err"}`}>{health}</span></div>
-          <div>{user.display_name} · {user.role}</div>
-          {user.id !== "dev" && user.id !== "service" && (
-            <button className="link" style={{ textAlign: "left" }} onClick={() => { setToken(null); setUser(null); }}>Sign out</button>
-          )}
+          <div className="user-chip">
+            <span className="avatar" aria-hidden="true">{(user.display_name || "?").slice(0, 1).toUpperCase()}</span>
+            <span className="user-meta"><b>{user.display_name}</b><small>{user.role}</small></span>
+            <button className="icon-btn" onClick={toggleTheme} title="Toggle light / dark" aria-label="Toggle light or dark theme">
+              <Icon name={isDark(theme) ? "sun" : "moon"} size={16} />
+            </button>
+            {user.id !== "dev" && user.id !== "service" && (
+              <button className="icon-btn" onClick={() => { setToken(null); setUser(null); }} title="Sign out" aria-label="Sign out">
+                <Icon name="logout" size={16} />
+              </button>
+            )}
+          </div>
         </div>
       </nav>
 
       <main className="main">
         {view === "command" && (
           <>
-            <div className="page-head">
-              <div><h1>Command center</h1><p>Plan, approve and execute real changes in {connection ? new URL(connection.site_url).host : "your Atlassian site"}.</p></div>
-            </div>
+            <section className="hero">
+              <div className="hero-text">
+                <span className="eyebrow"><Icon name="spark" size={14} /> {greeting()}, {user.display_name.split(" ")[0]}</span>
+                <h1>What should your agents build today?</h1>
+                <p>Plan, approve and execute real changes in <b>{connection ? new URL(connection.site_url).host : "your Atlassian site"}</b>. Every step is verified against the live system.</p>
+              </div>
+              <div className="hero-stats">
+                <div className="hero-stat"><Icon name="brain" /><b>8</b><small>AI agents</small></div>
+                <div className="hero-stat"><Icon name="bolt" /><b>{catalog.length || "—"}</b><small>operations</small></div>
+                <div className="hero-stat"><Icon name="globe" /><b>3</b><small>languages</small></div>
+                <div className="hero-stat"><Icon name="shield" /><b>{connection?.last_test_status === "ok" ? "Live" : "Off"}</b><small>site link</small></div>
+              </div>
+            </section>
             <CommandCenter connection={connection} role={user.role} runId={runId} onRunId={setRunId}
               draft={draft} setDraft={setDraft} speak={(t) => void speak(t)} />
           </>

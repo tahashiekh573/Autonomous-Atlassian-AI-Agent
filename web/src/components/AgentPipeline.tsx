@@ -1,14 +1,15 @@
 import type { RunDetail } from "../types";
+import { Icon, type IconName } from "./Icons";
 
-const STAGES: { id: string; label: string; icon: string; agents: string[] }[] = [
-  { id: "understand", label: "Understand", icon: "🧠", agents: ["input_understanding_agent"] },
-  { id: "plan", label: "Plan", icon: "🗺️", agents: ["planning_agent"] },
-  { id: "jira", label: "Jira", icon: "🧩", agents: ["jira_agent"] },
-  { id: "jsm", label: "Service Mgmt", icon: "🛟", agents: ["jsm_agent"] },
-  { id: "confluence", label: "Confluence", icon: "📘", agents: ["confluence_agent"] },
-  { id: "integration", label: "Integrate", icon: "🔗", agents: ["integration_agent"] },
-  { id: "verify", label: "Verify", icon: "✅", agents: ["verification_agent"] },
-  { id: "report", label: "Report", icon: "📝", agents: ["response_agent"] },
+const STAGES: { id: string; label: string; icon: IconName; agents: string[] }[] = [
+  { id: "understand", label: "Understand", icon: "brain", agents: ["input_understanding_agent"] },
+  { id: "plan", label: "Plan", icon: "map", agents: ["planning_agent"] },
+  { id: "jira", label: "Jira", icon: "jira", agents: ["jira_agent"] },
+  { id: "jsm", label: "Service Mgmt", icon: "lifebuoy", agents: ["jsm_agent"] },
+  { id: "confluence", label: "Confluence", icon: "book", agents: ["confluence_agent"] },
+  { id: "integration", label: "Integrate", icon: "link", agents: ["integration_agent"] },
+  { id: "verify", label: "Verify", icon: "check", agents: ["verification_agent"] },
+  { id: "report", label: "Report", icon: "doc", agents: ["response_agent"] },
 ];
 
 const PLANNED = ["awaiting_approval", "executing", "completed", "completed_with_errors", "failed", "blocked"];
@@ -32,7 +33,7 @@ export function AgentPipeline({ run }: { run: RunDetail }) {
         return (
           <div key={s.id} className={`agent-node ${active ? "active" : ""} ${done ? "done" : ""}`}
             aria-current={active ? "step" : undefined}>
-            <div className="agent-dot" aria-hidden="true">{s.icon}</div>
+            <div className="agent-dot" aria-hidden="true"><Icon name={s.icon} /></div>
             <span>{s.label}</span>
           </div>
         );

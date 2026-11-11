@@ -4,6 +4,9 @@ import { errorText, useLoad } from "../hooks";
 import { ACTIVE, type Connection, type Role, type RunDetail } from "../types";
 import { RunView } from "./RunView";
 import { VoiceButton } from "./VoiceButton";
+import { Icon, type IconName } from "./Icons";
+
+const ORBIT: IconName[] = ["brain", "map", "jira", "lifebuoy", "book", "link", "check", "doc"];
 
 const EXAMPLES = [
   "Create a Bank IT Service Desk project in JSM with incident and service request workflows, SLAs, queues and automation.",
@@ -69,9 +72,9 @@ export function CommandCenter({ connection, role, runId, draft, setDraft, onRunI
 
   return (
     <div className="grid-cmd">
-      <div className="card stack sticky">
+      <div className="card stack sticky glow-card">
         <div className="row" style={{ justifyContent: "space-between" }}>
-          <h2 style={{ margin: 0 }}>AI command</h2>
+          <h2 style={{ margin: 0 }} className="row"><span className="title-ico"><Icon name="spark" size={16} /></span>AI command</h2>
           {run && <button className="link" onClick={() => onRunId(null)}>New command</button>}
         </div>
         {!connection && <div className="alert warn">Connect and test an Atlassian site first (Settings).</div>}
@@ -112,7 +115,7 @@ export function CommandCenter({ connection, role, runId, draft, setDraft, onRunI
           <div>
             <div className="small muted" style={{ marginBottom: 6 }}>Try:</div>
             <div className="chips">
-              {EXAMPLES.map((e) => <button key={e} className="chip" onClick={() => setDraft(e)}>{e.slice(0, 70)}…</button>)}
+              {EXAMPLES.map((e, i) => <button key={e} className="chip" style={{ animationDelay: `${i * 0.06}s` }} onClick={() => setDraft(e)}>{e.slice(0, 70)}…</button>)}
             </div>
           </div>
         )}
@@ -121,8 +124,15 @@ export function CommandCenter({ connection, role, runId, draft, setDraft, onRunI
       <div>
         {run ? <RunView run={run} role={role} onChange={onRunChange} speak={speak} /> : (
           <div className="card empty">
-            <div className="big" aria-hidden="true">🤖</div>
-            <b>Your agents are ready</b>
+            <div className="orbit" aria-hidden="true">
+              <div className="orbit-core"><Icon name="bolt" size={26} /></div>
+              <div className="orbit-ring">
+                {ORBIT.map((name, i) => (
+                  <span key={name} className="orbit-node" style={{ "--i": i } as React.CSSProperties}><Icon name={name} size={16} /></span>
+                ))}
+              </div>
+            </div>
+            <b className="empty-title">Your agents are ready</b>
             <span>The execution plan, approvals, live agent status and the verified report appear here.</span>
           </div>
         )}
