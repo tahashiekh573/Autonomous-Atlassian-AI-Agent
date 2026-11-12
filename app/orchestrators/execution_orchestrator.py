@@ -5,6 +5,7 @@ dependency completed (verified). Nothing is reported as completed without verifi
 """
 
 import logging
+from collections.abc import Callable
 from typing import Any, TypedDict
 
 from langgraph.graph import END, START, StateGraph
@@ -59,13 +60,20 @@ class _State(TypedDict, total=False):
 
 
 # Failures caused by what was sent (bad JQL, wrong names); not permissions or outages.
+STOPPED_MESSAGE = "Stopped by you before this step started; nothing was changed for it."
 _REPAIRABLE = {"operation_invalid_input", "atlassian_api_error", "validation_error"}
 
 
 class ExecutionOrchestrator:
-    def __init__(self, agents: AgentSet, sink: RunEventSink) -> None:
+    def __init__(
+        self,
+        agents: AgentSet,
+        sink: RunEventSink,
+        should_stop: Callable[[], bool] | None = None,
+    ) -> None:
         self._agents = agents
         self._sink = sink
+        self._should_stop = should_stop or (lambda: False)
         self._graph = self._build()
 
     def _build(self) -> Any:
@@ -136,6 +144,12 @@ class ExecutionOrchestrator:
 
     async def _select(self, state: _State) -> _State:
         statuses = state["statuses"]
+        if self._should_stop():
+            # Stopped by the user: the step that was running has finished; start nothing new.
+            for op in state["plan"].operations:
+                if statuses[op.id] == "pending":
+                    await self._set(state, op.id, "skipped", STOPPED_MESSAGE)
+            return {"current": None, "statuses": statuses, "messages": state["messages"]}
         for op in state["plan"].operations:
             if statuses[op.id] != "pending":
                 continue

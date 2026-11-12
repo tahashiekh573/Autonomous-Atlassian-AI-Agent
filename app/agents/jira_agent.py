@@ -11,6 +11,7 @@ from app.agents.handlers import (
     jira_projects,
     jira_reports,
     jira_team_workflows,
+    jira_transition_tour,
     jira_workflow_schemes,
     jira_workflows,
 )
@@ -52,6 +53,9 @@ class JiraAgent(OperationAgent):
         "jira.create_issue": Handler(jira_issues.create_issue, jira_issues.check_create_issue),
         "jira.update_issue": Handler(jira_issues.update_issue),
         "jira.transition_issue": Handler(jira_issues.transition_issue),
+        "jira.verify_workflow_transitions": Handler(
+            jira_transition_tour.verify_workflow_transitions
+        ),
         "jira.link_issues": Handler(jira_issues.link_issues),
         "jira.delete_issue": Handler(jira_issues.delete_issue, jira_issues.check_delete_issue),
         "jira.search_issues": Handler(jira_issues.search_issues),

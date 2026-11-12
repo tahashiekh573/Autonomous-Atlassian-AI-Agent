@@ -2,12 +2,12 @@ import { useState } from "react";
 import { api } from "../api";
 import { errorText, useLoad } from "../hooks";
 import { ACTIVE, type Connection, type Role, type RunDetail } from "../types";
+import { RobotPresenter } from "./RobotPresenter";
 import { RunView } from "./RunView";
 import { liveEnabled, liveTabOpen, openLiveSite, setLiveEnabled, useLiveFollow } from "../liveSite";
 import { VoiceButton } from "./VoiceButton";
-import { Icon, type IconName } from "./Icons";
+import { Icon } from "./Icons";
 
-const ORBIT: IconName[] = ["brain", "map", "jira", "lifebuoy", "book", "link", "check", "doc"];
 
 const EXAMPLES = [
   "Create a Bank IT Service Desk project in JSM with incident and service request workflows, SLAs, queues and automation.",
@@ -162,18 +162,7 @@ export function CommandCenter({ connection, role, runId, draft, setDraft, onRunI
 
       <div>
         {run ? <RunView run={run} role={role} onChange={onRunChange} speak={speak} onExecuteClick={openLive} /> : (
-          <div className="card empty">
-            <div className="orbit" aria-hidden="true">
-              <div className="orbit-core"><Icon name="bolt" size={26} /></div>
-              <div className="orbit-ring">
-                {ORBIT.map((name, i) => (
-                  <span key={name} className="orbit-node" style={{ "--i": i } as React.CSSProperties}><Icon name={name} size={16} /></span>
-                ))}
-              </div>
-            </div>
-            <b className="empty-title">Your agents are ready</b>
-            <span>The execution plan, approvals, live agent status and the verified report appear here.</span>
-          </div>
+          <RobotPresenter run={null} />
         )}
       </div>
     </div>

@@ -51,10 +51,64 @@ async def check_create_queue(ctx: HandlerContext, p: CreateQueueParams) -> Check
     # statuses) can only be validated once the project exists - create_queue does that.
     if await ctx.jira.find_project(p.project_key) is None:
         return CheckResult(notes=[f"Queue JQL is checked after {p.project_key} is created."])
-    problems = await _queue_jql_problems(ctx, p.project_key, p.jql)
+    jql, problems = await _valid_queue_jql(ctx, p.project_key, p.jql)
     if problems:
         return CheckResult(conflict=True, notes=[f"Invalid queue JQL: {problems}"])
+    if jql != p.jql:
+        return CheckResult(notes=[f"SLA clause will be written as: {jql}"])
     return CheckResult(notes=["Queue JQL validated by Jira."])
+
+
+_SLA_FUNCS = "breached|everBreached|paused|running|completed|withinCalendarHours|elapsed|remaining"
+# "slaFunction(breached())", "SLA = breached()", "sla is breached()"
+_SLA_WRAPPED = re.compile(
+    rf"\b(?:slaFunction|sla)\s*(?:=|\bis\b)?\s*\(\s*({_SLA_FUNCS})\s*\(\s*\)\s*\)"
+    rf"|\b(?:slaFunction|sla)\s*(?:=|\bis\b)\s*({_SLA_FUNCS})\s*\(\s*\)",
+    re.IGNORECASE,
+)
+_SLA_BARE = re.compile(rf"\b({_SLA_FUNCS})\s*\(\s*\)", re.IGNORECASE)
+_OPERATOR_BEFORE = re.compile(r"(?:[=<>~]|\bin|\bis(?:\s+not)?|\bwas)\s*$", re.IGNORECASE)
+
+
+def fix_sla_jql(jql: str, metric_names: list[str]) -> str:
+    """Rewrite metric-less SLA clauses into valid JQL over the project's SLA metrics.
+
+    JQL needs ``"<metric name>" = breached()``; planners often write ``slaFunction(breached())``,
+    ``SLA = breached()`` or a bare ``breached()``. Clauses that already name a field are kept.
+    """
+    if not metric_names:
+        return jql
+
+    def expand(func: str) -> str:
+        parts = [f'"{n}" = {func}()' for n in metric_names]
+        return parts[0] if len(parts) == 1 else "(" + " OR ".join(parts) + ")"
+
+    out = _SLA_WRAPPED.sub(lambda m: expand(m.group(1) or m.group(2)), jql)
+
+    def bare(m: re.Match[str]) -> str:
+        if _OPERATOR_BEFORE.search(out[: m.start()]):
+            return m.group(0)  # already "<field> = breached()"
+        return expand(m.group(1))
+
+    return _SLA_BARE.sub(bare, out)
+
+
+async def _sla_metric_names(ctx: HandlerContext, project_key: str) -> list[str]:
+    try:
+        body = await ctx.jsm.get_sla_metrics(project_key)
+    except Exception:
+        return []
+    return [str(m["name"]) for m in body.get("timeMetrics") or [] if m.get("name")]
+
+
+async def _valid_queue_jql(ctx: HandlerContext, project_key: str, jql: str) -> tuple[str, str]:
+    """(jql, problems): metric-less SLA clauses are rewritten when that makes the JQL valid."""
+    problems = await _queue_jql_problems(ctx, project_key, jql)
+    if problems:
+        fixed = fix_sla_jql(jql, await _sla_metric_names(ctx, project_key))
+        if fixed != jql and not await _queue_jql_problems(ctx, project_key, fixed):
+            return fixed, ""
+    return jql, problems
 
 
 async def _queue_jql_problems(ctx: HandlerContext, project_key: str, jql: str) -> str:
@@ -77,10 +131,10 @@ async def create_queue(ctx: HandlerContext, p: CreateQueueParams) -> HandlerResu
             outputs={"id": str(existing["id"]), "url": url},
             reused_existing=True,
         )
-    problems = await _queue_jql_problems(ctx, desk.project_key, p.jql)
+    jql_in, problems = await _valid_queue_jql(ctx, desk.project_key, p.jql)
     if problems:
         raise OperationInputError(f"Invalid queue JQL: {problems}")
-    jql = _strip_project(p.jql, desk.project_key) or "resolution = Unresolved"
+    jql = _strip_project(jql_in, desk.project_key) or "resolution = Unresolved"
     created = await ctx.jsm.create_queue(
         desk.project_key, {"name": p.name, "jql": jql, "columns": p.columns}
     )

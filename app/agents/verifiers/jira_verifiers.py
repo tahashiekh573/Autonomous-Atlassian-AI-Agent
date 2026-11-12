@@ -176,6 +176,20 @@ async def transition(ctx: HandlerContext, p: Any, o: OperationOutcome) -> Checks
     return [check("status", p.to_status, status)]
 
 
+async def transition_tour(ctx: HandlerContext, p: Any, o: OperationOutcome) -> Checks:
+    """Every tested transition must appear in the issue's own history."""
+    history = set(await ctx.jira.get_status_changes(p.issue_key))
+    checks = []
+    for (source, target), label in zip(
+        o.outputs.get("wanted") or [], o.outputs.get("tested") or [], strict=False
+    ):
+        seen = any(t == str(target) and (source is None or f == str(source)) for f, t in history)
+        checks.append(exists(f"transition {label} in {p.issue_key} history", seen, label))
+    if not checks:
+        checks.append(check("transitions tested", "at least one", "none", passed=False))
+    return checks
+
+
 async def link(ctx: HandlerContext, p: Any, o: OperationOutcome) -> Checks:
     source = getattr(p, "from_issue", None) or p.incident_key
     target = getattr(p, "to_issue", None) or p.issue_key
@@ -260,6 +274,7 @@ VERIFIERS: dict[str, Verifier] = {
     "jira.create_issue": issue,
     "jira.update_issue": issue,
     "jira.transition_issue": transition,
+    "jira.verify_workflow_transitions": transition_tour,
     "jira.link_issues": link,
     "jira.delete_issue": deleted_issue,
     "jira.create_filter": filter_,

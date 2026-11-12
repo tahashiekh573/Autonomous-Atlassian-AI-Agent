@@ -607,3 +607,25 @@ async def test_rejected_step_is_auto_corrected_instead_of_skipped(
     done = (await client.get(f"/api/v1/runs/{run['id']}")).json()
     assert done["operations"][0]["status"] == "completed"
     assert filters["900"]["jql"] == '"Time to resolution" = breached()'
+
+
+async def test_stop_finishes_the_current_step_and_starts_no_more(
+    client: httpx.AsyncClient, app: FastAPI, fake_atlassian: FakeAtlassian, fake_llm: FakeLLM
+) -> None:
+    site = StatefulSite(fake_atlassian)
+    fake_llm.plan = PLAN
+    run = await _run(client, app)
+    engine = app.state.engine
+    # The user presses Stop while step 1 runs: it is finished, nothing after it starts.
+    engine.stop_requested = lambda run_id: bool(site.projects)
+    await client.post(f"/api/v1/runs/{run['id']}/approve", json={})
+    await wait_for_run(app, run["id"])
+    run = (await client.get(f"/api/v1/runs/{run['id']}")).json()
+    statuses = {o["op_id"]: o["status"] for o in run["operations"]}
+    assert statuses == {"s1": "completed", "s2": "skipped", "s3": "skipped", "s4": "skipped"}
+    assert "BANK" in site.projects and site.spaces == {}
+    assert run["operations"][1]["message"].startswith("Stopped by you")
+    assert run["progress_message"] == "Stopped by you"
+    # a finished run has nothing left to stop
+    again = await client.post(f"/api/v1/runs/{run['id']}/stop")
+    assert again.status_code == 409

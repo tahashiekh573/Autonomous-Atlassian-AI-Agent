@@ -99,6 +99,7 @@ export const api = {
     request<RunDetail>(`/runs/${id}/approve`, { method: "POST", body: json({ operation_ids: operationIds ?? null }) }),
   reject: (id: string, reason: string) =>
     request<RunDetail>(`/runs/${id}/reject`, { method: "POST", body: json({ reason }) }),
+  stop: (id: string) => request<RunDetail>(`/runs/${id}/stop`, { method: "POST" }),
   clarify: (id: string, answer: string) =>
     request<RunDetail>(`/runs/${id}/clarify`, { method: "POST", body: json({ answer }) }),
   health: () => request<{ status: string; database?: string }>("/health/ready"),

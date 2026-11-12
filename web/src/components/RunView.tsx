@@ -4,6 +4,7 @@ import { errorText } from "../hooks";
 import type { Operation, Report, Role, RunDetail } from "../types";
 import { AgentPipeline, RunProgress } from "./AgentPipeline";
 import { human, OpBadge, RiskBadge, RunBadge } from "./Badges";
+import { RobotPresenter } from "./RobotPresenter";
 
 const ELEVATED = new Set(["destructive", "security"]);
 
@@ -28,6 +29,7 @@ export function RunView({ run, role, onChange, speak, onExecuteClick }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [run.id, run.status]);
 
+  const stopping = run.status === "executing" && (run.progress_message ?? "").startsWith("Stopping");
   const errors = run.plan_issues.filter((i) => i.severity === "error");
   const warnings = [...run.plan_issues.filter((i) => i.severity === "warning").map((i) => i.message),
     ...(run.plan?.warnings ?? [])];
@@ -54,10 +56,20 @@ export function RunView({ run, role, onChange, speak, onExecuteClick }: Props) {
 
   return (
     <div className="stack">
+      <RobotPresenter run={run} />
       <div className="card stack">
         <div className="row" style={{ justifyContent: "space-between" }}>
           <h2 style={{ margin: 0 }}>Execution plan</h2>
-          <RunBadge status={run.status} />
+          <div className="row" style={{ gap: 10 }}>
+            {(run.status === "planning" || run.status === "executing") && role !== "viewer" && (
+              <button className="stop-btn" disabled={busy || stopping}
+                title="Finish the step in progress, then start no more steps"
+                onClick={() => void act(() => api.stop(run.id))}>
+                ■ {stopping ? "Stopping…" : "Stop"}
+              </button>
+            )}
+            <RunBadge status={run.status} />
+          </div>
         </div>
 
         <AgentPipeline run={run} />

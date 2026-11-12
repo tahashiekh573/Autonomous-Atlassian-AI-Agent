@@ -4,13 +4,14 @@
 import { useEffect, useRef, useState } from "react";
 import type { Operation, RunDetail } from "./types";
 
-const PREF_KEY = "aaa.liveSite";
+// Off unless the user ticks the box: by default everything stays inside the dashboard.
+const PREF_KEY = "aaa.liveSite.optin";
 const MIN_SHOW_MS = 3500; // keep each page on screen long enough to see it
 
 let liveTab: Window | null = null;
 
 export function liveEnabled(): boolean {
-  try { return localStorage.getItem(PREF_KEY) !== "off"; } catch { return true; }
+  try { return localStorage.getItem(PREF_KEY) === "on"; } catch { return false; }
 }
 
 export function setLiveEnabled(on: boolean): void {

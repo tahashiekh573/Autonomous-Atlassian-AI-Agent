@@ -30,6 +30,26 @@ class JiraIssuesMixin:
         )
         return body
 
+    async def get_status_changes(self, key: str) -> list[tuple[str, str]]:
+        """(from status id, to status id) for every status change in the issue's history."""
+        changes: list[tuple[str, str]] = []
+        start = 0
+        while True:
+            body: dict[str, Any] = await self._http.request(
+                "GET",
+                f"/rest/api/3/issue/{seg(key)}/changelog",
+                service=SERVICE,
+                params={"startAt": start, "maxResults": 100},
+            )
+            values = body.get("values") or []
+            for entry in values:
+                for item in entry.get("items") or []:
+                    if item.get("field") == "status":
+                        changes.append((str(item.get("from")), str(item.get("to"))))
+            start += len(values)
+            if body.get("isLast", True) or not values:
+                return changes
+
     async def update_issue(self, key: str, fields: dict[str, Any]) -> None:
         await self._http.request(
             "PUT", f"/rest/api/3/issue/{seg(key)}", service=SERVICE, json={"fields": fields}

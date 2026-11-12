@@ -147,6 +147,36 @@ class RunService:
         )
         return await self.get(run_id)
 
+    async def stop(self, principal: Principal, run_id: str) -> RunDetail:
+        """Stop a run: planning is cancelled outright (nothing has changed yet); execution
+        finishes the step in progress so nothing is left half-made, then starts no more steps."""
+        run = await self._require(run_id)
+        if run.status == "planning":
+            await self._engine.tasks.cancel(run_id)
+            run = await self._require(run_id)  # reload what the cancelled task left behind
+            for op in run.operations:
+                op.status = "skipped"
+                op.message = "Stopped by you during planning."
+            run.status = "rejected"
+            run.error = "Stopped by you during planning; nothing was changed."
+            run.progress_message = "Stopped by you"
+            run.current_agent = None
+            run.finished_at = utcnow()
+        elif run.status == "executing":
+            self._engine.request_stop(run_id)
+            run.progress_message = "Stopping: finishing the current step, then no more steps"
+        else:
+            raise ConflictError(f"Run is '{run.status}'; there is nothing to stop.")
+        await self._runs.commit()
+        await self._audit.record(
+            action="run.stop",
+            resource_type="execution_run",
+            resource_id=run_id,
+            outcome="stopped",
+            details={"by": principal.email},
+        )
+        return await self.get(run_id)
+
     async def clarify(self, principal: Principal, run_id: str, answer: str) -> RunDetail:
         """Answer clarification questions or request plan changes; the run is re-planned."""
         run = await self._require(run_id)

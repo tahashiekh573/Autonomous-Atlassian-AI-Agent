@@ -145,7 +145,14 @@ async def _create_page(
     space = await require_space(ctx, space_key)
     existing = await ctx.confluence.find_page(str(space["id"]), title)
     if existing:
-        return _page_result(ctx, existing, space_key, resource_type, reused=True)
+        result = _page_result(ctx, existing, space_key, resource_type, reused=True)
+        # Labels are additive: bring a reused page up to what was asked without touching content.
+        have = {label.casefold() for label in await ctx.confluence.get_labels(str(existing["id"]))}
+        missing = [label for label in labels if label.casefold() not in have]
+        if missing:
+            await ctx.confluence.add_labels(str(existing["id"]), missing)
+            result.message += f" Added labels: {', '.join(missing)}."
+        return result
     parent_id = await _parent_id(ctx, space, parent_page_id, parent_title)
     page = await ctx.confluence.create_page(str(space["id"]), title, await body_fn(), parent_id)
     if labels:

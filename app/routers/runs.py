@@ -58,6 +58,11 @@ async def reject_run(
     return await service.reject(principal, run_id, payload.reason)
 
 
+@router.post("/runs/{run_id}/stop", response_model=RunDetail)
+async def stop_run(run_id: str, service: RunServiceDep, principal: OperatorDep) -> RunDetail:
+    return await service.stop(principal, run_id)
+
+
 @router.post("/runs/{run_id}/clarify", response_model=RunDetail)
 async def clarify_run(
     run_id: str, payload: ClarifyRequest, service: RunServiceDep, principal: OperatorDep

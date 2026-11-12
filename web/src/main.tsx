@@ -6,6 +6,7 @@ import { CursorFX } from "./components/CursorFX";
 import { applyFx } from "./fx";
 import "./styles.css";
 import "./refresh.css";
+import "./robot.css";
 
 applyFx();
 

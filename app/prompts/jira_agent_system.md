@@ -19,8 +19,14 @@ How to plan Jira operations so the Jira Agent can execute them reliably:
   Issue types of team-managed projects cannot be created through the API: use an existing one
   from that project's `issue_types` (pick the closest, e.g. the main request/incident type) and
   say in `warnings` which type you chose. The workflow name is fixed by Jira; pass the requested
-  name as `workflow_label`. To prove transitions work, create a sample issue of that type and
-  `jira.transition_issue` it through the flow.
+  name as `workflow_label`.
+- To prove a workflow's transitions work ("test / verify all transitions"), create ONE sample
+  issue of the mapped type and add ONE `jira.verify_workflow_transitions` step for it
+  (`transitions: []` tests every transition; or list `{from_status, to_status}` pairs exactly as
+  the user defined them). It orders the moves itself so a final status such as Done is reached
+  last. Never plan a chain of `jira.transition_issue` steps to test a workflow, and never test a
+  transition the workflow does not define. Use `jira.transition_issue` only to move an issue to
+  one target status.
 - Apply workflows to a (company-managed) project with ONE `jira.configure_workflow_scheme` step listing every
   workflow → issue types mapping (works even when the project already has issues; statuses are
   migrated). Use `jira.update_workflow` to add missing transitions (reopen, rollback, failed) to an

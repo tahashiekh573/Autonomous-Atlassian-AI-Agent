@@ -91,6 +91,7 @@ class PlanningAgent(LLMAgent[PlanningInput, ExecutionPlan]):
         if requirements:
             await self._close_gaps(context, plan, requirements, data.max_operations)
         await self._repair_params(context, plan, data.workspace)
+        collapse_transition_chains(plan)
         _ensure_unique_ids(plan)
         plan.warnings = tidy_warnings(plan.warnings)
         if len(plan.operations) > data.max_operations:
@@ -344,6 +345,53 @@ def _merge(plan: ExecutionPlan, expansion: PlanExpansion) -> int:
     plan.coverage.extend(c for c in added.coverage if c.requirement.casefold() not in known)
     plan.warnings.extend(w for w in added.warnings if w not in plan.warnings)
     return len(keep)
+
+
+_WORKFLOW_OPS = {
+    "jira.create_workflow",
+    "jira.update_workflow",
+    "jira.assign_workflow",
+    "jira.configure_workflow_scheme",
+    "jira.set_issue_type_workflow",
+}
+MIN_TRANSITION_CHAIN = 3
+
+
+def collapse_transition_chains(plan: ExecutionPlan) -> None:
+    """A chain of transition steps that tests a new workflow becomes one transition tour.
+
+    Planners order such chains badly (the issue reaches Done first and the rework/reopen moves
+    can never run) and invent transitions the workflow does not have. The tour walks every
+    transition the workflow really defines, in an order that never strands the issue.
+    """
+    if not any(op.operation in _WORKFLOW_OPS for op in plan.operations):
+        return
+    chains: dict[str, list[PlannedOperation]] = {}
+    for op in plan.operations:
+        if op.operation == "jira.transition_issue" and op.params.get("issue_key"):
+            chains.setdefault(str(op.params["issue_key"]), []).append(op)
+    merged: dict[str, str] = {}
+    for issue_key, chain in chains.items():
+        if len(chain) < MIN_TRANSITION_CHAIN:
+            continue
+        head = chain[0]
+        ids = {op.id for op in chain}
+        head.operation = "jira.verify_workflow_transitions"
+        head.params = {"issue_key": issue_key, "transitions": []}
+        head.description = "Test every transition of the workflow on the sample issue."
+        head.depends_on = sorted({d for op in chain for d in op.depends_on} - ids)
+        merged.update({op.id: head.id for op in chain[1:]})
+    if not merged:
+        return
+    plan.operations = [op for op in plan.operations if op.id not in merged]
+    pattern = re.compile(r"\$\{(" + "|".join(map(re.escape, merged)) + r")\.")
+    for op in plan.operations:
+        op.params = json.loads(
+            pattern.sub(lambda m: "${" + merged[m.group(1)] + ".", json.dumps(op.params))
+        )
+        op.depends_on = sorted({merged.get(d, d) for d in op.depends_on} - {op.id})
+    for item in plan.coverage:
+        item.operation_ids = sorted({merged.get(i, i) for i in item.operation_ids})
 
 
 def _drop_duplicates(plan: ExecutionPlan) -> None:

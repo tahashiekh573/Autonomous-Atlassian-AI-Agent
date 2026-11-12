@@ -215,6 +215,19 @@ class TransitionIssueParams(Params):
     to_status: str
 
 
+class TransitionCheck(Params):
+    from_status: str = Field(description="Status the transition starts from ('' = from any status)")
+    to_status: str
+
+
+class VerifyWorkflowTransitionsParams(Params):
+    issue_key: IssueKey
+    transitions: list[TransitionCheck] = Field(
+        default_factory=list,
+        description="Transitions to prove; empty = every transition in the issue's workflow",
+    )
+
+
 class LinkIssuesParams(Params):
     from_issue: IssueKey
     to_issue: IssueKey
@@ -509,6 +522,15 @@ SPECS: list[OperationSpec] = [
         "modify",
         "Move an issue to a status.",
         TransitionIssueParams,
+    ),
+    OperationSpec(
+        "jira.verify_workflow_transitions",
+        "jira",
+        "modify",
+        "Prove a workflow works: walk a test issue through every transition (or the listed "
+        "ones) in an order that never gets stuck in a final status, and confirm each move in "
+        "the issue history. Use this instead of several jira.transition_issue steps.",
+        VerifyWorkflowTransitionsParams,
     ),
     OperationSpec(
         "jira.link_issues",

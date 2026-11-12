@@ -30,6 +30,15 @@ class TaskManager:
         task = self._tasks.get(key)
         return task is not None and not task.done()
 
+    async def cancel(self, key: str) -> bool:
+        """Cancel a running task and wait for it to unwind; False if nothing was running."""
+        task = self._tasks.get(key)
+        if task is None or task.done():
+            return False
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        return True
+
     async def wait(self, key: str) -> None:
         while (task := self._tasks.get(key)) is not None:
             await asyncio.gather(task, return_exceptions=True)

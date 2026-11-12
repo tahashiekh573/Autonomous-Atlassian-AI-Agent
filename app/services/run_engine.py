@@ -46,6 +46,14 @@ class RunEngine:
         self._settings = settings
         self.tasks = tasks
         self._build_agents = agent_builder
+        self._stop_requested: set[str] = set()
+
+    def request_stop(self, run_id: str) -> None:
+        """The executing run finishes its current step, then starts no further steps."""
+        self._stop_requested.add(run_id)
+
+    def stop_requested(self, run_id: str) -> bool:
+        return run_id in self._stop_requested
 
     @property
     def llm_available(self) -> bool:
@@ -222,9 +230,13 @@ class RunEngine:
                 self._llm_or_fail(),
                 self._settings.verification_retry_delay_seconds,
             )
-            result = await ExecutionOrchestrator(agents, recorder).run(
-                run_id, plan, approved, instruction, language, preskipped
-            )
+            try:
+                result = await ExecutionOrchestrator(
+                    agents, recorder, should_stop=lambda: self.stop_requested(run_id)
+                ).run(run_id, plan, approved, instruction, language, preskipped)
+            finally:
+                stopped = self.stop_requested(run_id)
+                self._stop_requested.discard(run_id)
         statuses = list(result.statuses.values())
         if any(s == "failed" for s in statuses) or any(s == "skipped" for s in statuses):
             final = (
@@ -238,6 +250,6 @@ class RunEngine:
                 status=final,
                 report=result.report.model_dump(mode="json"),
                 current_agent=None,
-                progress_message="Finished",
+                progress_message="Stopped by you" if stopped else "Finished",
                 finished_at=utcnow(),
             )

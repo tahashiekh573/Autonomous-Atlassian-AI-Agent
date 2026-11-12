@@ -55,3 +55,17 @@ def test_auto_assign_on_new_tickets_is_allowed_but_unconditional_close_is_not() 
     assert automation_problem(assign_new) is None
     assert automation_problem(close_on_update)
     assert "scheduled_jql" in (automation_problem(scheduled_no_jql) or "")
+
+
+def test_metricless_sla_jql_is_rewritten_over_project_metrics() -> None:
+    from app.agents.handlers.jsm_config import fix_sla_jql
+
+    names = ["Time to first response", "Time to resolution"]
+    both = '("Time to first response" = breached() OR "Time to resolution" = breached())'
+    assert fix_sla_jql("resolution = Unresolved AND slaFunction(breached())", names) == (
+        f"resolution = Unresolved AND {both}"
+    )
+    assert fix_sla_jql("SLA = breached()", names) == both
+    assert fix_sla_jql("resolution = Unresolved AND breached()", names).endswith(both)
+    kept = '"Time to resolution" = breached() AND priority = High'
+    assert fix_sla_jql(kept, names) == kept
