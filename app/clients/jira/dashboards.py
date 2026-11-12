@@ -45,6 +45,30 @@ class JiraDashboardsMixin:
         body = await self._http.request("GET", "/rest/api/3/dashboard/gadgets", service=SERVICE)
         return list(body.get("gadgets") or [])
 
+    async def get_gadget_prefs(self, dashboard_id: str, gadget_id: str) -> dict[str, str]:
+        """Legacy gadget preferences (the gadget's Configure form), name -> value.
+
+        Internal endpoint used by Jira's own dashboard; there is no public one for legacy gadgets.
+        """
+        body = await self._http.request(
+            "GET",
+            f"/rest/dashboards/1.0/{seg(dashboard_id)}/gadget/{seg(gadget_id)}/prefs",
+            service=SERVICE,
+        )
+        fields = (body or {}).get("fields") or []
+        return {str(f.get("name")): str(f.get("value", "")) for f in fields}
+
+    async def set_gadget_prefs(
+        self, dashboard_id: str, gadget_id: str, prefs: dict[str, str]
+    ) -> None:
+        await self._http.request(
+            "PUT",
+            f"/rest/dashboards/1.0/{seg(dashboard_id)}/gadget/{seg(gadget_id)}/prefs",
+            service=SERVICE,
+            json={f"up_{k}": v for k, v in prefs.items()},
+            headers={"X-Atlassian-Token": "no-check"},
+        )
+
     async def get_gadgets(self, dashboard_id: str) -> list[dict[str, Any]]:
         body = await self._http.request(
             "GET", f"/rest/api/3/dashboard/{seg(dashboard_id)}/gadget", service=SERVICE

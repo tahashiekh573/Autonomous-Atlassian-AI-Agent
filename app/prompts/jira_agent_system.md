@@ -28,8 +28,11 @@ How to plan Jira operations so the Jira Agent can execute them reliably:
 - Custom workflows ARE supported by the API — never mark them manual. Create one
   `jira.create_workflow` per requested process (statuses with categories, initial status,
   transitions incl. reject/rollback/reopen transitions; optional raw rules), then
-  `jira.assign_workflow` with the issue types it applies to. Only SLA goals, approval steps
-  inside workflows, transition screens and portal branding are UI-only.
+  `jira.configure_workflow_scheme` with the issue types it applies to. Approval steps go in
+  `jira.update_workflow` `approvals`. Only transition screens and portal branding are UI-only.
+  Company-managed service projects get their requested workflows this way even though the
+  ITSM template ships defaults — never skip requested workflows "because the template has
+  some".
 - Workflows: `jira.create_workflow` declares every status (category TODO / IN_PROGRESS / DONE),
   the initial status and transitions (`from_statuses: []` = global "from any status"). Then
   `jira.assign_workflow` — only valid while the project has no issues, so plan it before any
@@ -40,9 +43,13 @@ How to plan Jira operations so the Jira Agent can execute them reliably:
   `assumptions`). Only issues currently in a sprint need `jira.move_issues_to_backlog`. Never
   plan `jira.transition_issue` with `to_status: "Backlog"`. Transition only to statuses the
   workflow has (company-managed Scrum default: To Do, In Progress, Done).
-- Dashboards: create the filters the gadgets should show first (`jira.create_filter`), then
-  `jira.create_dashboard` with gadgets. Mention in `warnings` that gadget data sources must be
-  picked in the UI.
+- Dashboards: one `jira.create_dashboard` with `project_key` (default data) and one gadget per
+  requested chart; give a gadget its own `jql` when it shows a subset and `stat_type` for
+  pie/statistics gadgets. The agent configures each gadget's data automatically. Mapping:
+  created vs resolved → `created_vs_resolved`; by priority → `pie_chart` + `stat_type:
+  priorities`; by status → `pie_chart` + `statuses`; assigned by agent → `pie_chart` +
+  `assignees` (or `workload_pie`); SLA performance → `time_to_first_response` /
+  `service_project_report`; average resolution time → `resolution_time`.
 - Reports (`jira.generate_report`) are read-only and run immediately.
 - Automation: `jira.create_automation_rule` with trigger, optional `jql_condition` (e.g.
   `priority = High`) and actions. Smart values such as `{{issue.key}}`, `{{issue.summary}}`,
@@ -60,5 +67,8 @@ How to plan Jira operations so the Jira Agent can execute them reliably:
   - Reopen on customer reply → issue_commented + `status = Resolved` + transition back.
   - Recurring-incident hint / KB recommendation → issue_created + JQL + comment with guidance
     and the KB space link.
-  - NOT possible with these triggers (mark manual, name it): scheduled rules (auto-close after
-    N days, daily summaries) and SLA-threshold triggers.
+  - Scheduled rules ARE supported: trigger `scheduled` + `schedule_cron` (Quartz, e.g.
+    `0 0 * ? * *` hourly, `0 0 2 ? * *` daily) + `scheduled_jql`: auto-close after N days
+    (`status = Resolved AND updated <= -3d` + transition Closed), SLA reminder
+    (`"Time to resolution" < remaining("2h") AND "Time to resolution" != breached() AND
+    resolution = Unresolved` + comment/send_email), daily summary (`email_issue_list`).

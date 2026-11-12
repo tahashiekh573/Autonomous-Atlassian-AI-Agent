@@ -2,7 +2,7 @@
 
 from typing import ClassVar
 
-from app.agents.handlers import assets_handlers, jsm_forms, jsm_reports
+from app.agents.handlers import assets_handlers, jsm_config, jsm_forms, jsm_reports
 from app.agents.handlers import jsm_handlers as h
 from app.agents.handlers.base import Handler
 from app.agents.operation_agent import OperationAgent
@@ -20,6 +20,8 @@ class JsmAgent(OperationAgent):
         "jsm.create_request_type": Handler(h.create_request_type),
         "jsm.list_request_types": Handler(h.list_request_types),
         "jsm.list_queues": Handler(h.list_queues),
+        "jsm.create_queue": Handler(jsm_config.create_queue, jsm_config.check_create_queue),
+        "jsm.configure_sla": Handler(jsm_config.configure_sla, jsm_config.check_configure_sla),
         "jsm.create_organization": Handler(h.create_organization),
         "jsm.add_customers": Handler(h.add_customers),
         "jsm.create_request": Handler(h.create_request),

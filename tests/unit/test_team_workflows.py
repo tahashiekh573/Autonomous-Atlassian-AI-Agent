@@ -117,3 +117,22 @@ def test_repaired_duplicates_are_dropped_and_references_rewired() -> None:
     assert [o.id for o in plan.operations] == ["s1", "s3"]
     assert plan.operations[1].params["summary"] == "${s1.workflow_id}"
     assert plan.operations[1].depends_on == ["s1"]
+
+
+def test_new_steps_never_reuse_ids_after_dedupe_gaps() -> None:
+    from app.agents.planning_agent import _renumber
+    from app.schemas.agents import ExecutionPlan, PlanExpansion
+
+    step = {"operation": "jira.create_issue", "description": "x", "params": {}}
+    # s2 was dropped as a duplicate: 2 steps, but the highest id is s3
+    plan = ExecutionPlan.model_validate(
+        {"summary": "x", "operations": [{"id": "s1", **step}, {"id": "s3", **step}]}
+    )
+    expansion = PlanExpansion.model_validate(
+        {
+            "complete": True,
+            "operations": [{"id": "s3", **step}, {"id": "s3", **step}, {"id": "s9", **step}],
+        }
+    )
+    ids = [op.id for op in _renumber(expansion, plan).operations]
+    assert len(set(ids) | {"s1", "s3"}) == 5 and ids == ["s4", "s5", "s9"]

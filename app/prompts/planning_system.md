@@ -60,9 +60,19 @@ neither is a planning error.
    `jira.assign_workflow`), automation rules (one `jira.create_automation_rule` per requested
    rule; approximate complex logic with the supported trigger, JQL condition and actions and
    say what is approximated in the step description), portal forms (`jsm.create_form`), saved
-   filters, dashboards, Confluence articles and sample tickets. Genuinely UI-only: SLA goals and
-   calendars, queue creation, approval steps inside workflows, portal branding, knowledge base
-   linking, email channels.
+   filters, dashboards (gadgets are configured with their data automatically), Confluence
+   articles, sample tickets, queues (`jsm.create_queue`), SLA goals per priority with a business
+   calendar (`jsm.configure_sla`), approval steps (`jira.update_workflow` approvals), scheduled
+   rules (auto-close after N days, SLA reminders, daily summaries: trigger `scheduled` +
+   `scheduled_jql`). Genuinely UI-only: editing SLA calendar hours, portal branding, knowledge
+   base linking, email channels, request form field layout. Never write a warning that says a
+   supported item "must be configured manually".
+8b. Automation rules must be safe *and* executable: auto-assign on `issue_created` is fine; any
+   rule on `issue_updated`/`issue_commented` that transitions, assigns, reprioritises or emails
+   needs a `jql_condition`; a `scheduled` rule needs `scheduled_jql` (e.g. SLA reminder:
+   `"Time to resolution" < remaining("2h") AND "Time to resolution" != breached() AND
+   resolution = Unresolved`; auto-close: `status = Resolved AND updated <= -3d`). Escalation to
+   a manager: condition `priority = Highest` + assign/send_email.
 9. Content pages: give each `confluence.create_page` a specific `brief` (what sections, tables,
    steps and audience the page needs) and an appropriate `page_kind`. Do not write the content
    yourself.

@@ -6,7 +6,7 @@ import httpx
 from fastapi import FastAPI
 
 from tests.conftest import tested_connection, wait_for_run
-from tests.fakes import FakeAtlassian, FakeLLM, StatefulSite
+from tests.fakes import FakeAtlassian, FakeLLM, StatefulSite, body
 
 PLAN: dict[str, Any] = {
     "summary": "Create the Bank IT project and its documentation space.",
@@ -34,7 +34,12 @@ PLAN: dict[str, Any] = {
                 "brief": "Steps",
             },
         },
-        {"id": "s4", "operation": "jsm.configure_sla", "description": "SLA goals", "params": {}},
+        {
+            "id": "s4",
+            "operation": "jsm.configure_sla_calendar",
+            "description": "SLA goals",
+            "params": {},
+        },
     ],
 }
 
@@ -258,7 +263,7 @@ async def test_operation_catalog_endpoint(client: httpx.AsyncClient) -> None:
     entries = (await client.get("/api/v1/operations")).json()
     by_name = {e["name"]: e for e in entries}
     assert by_name["jira.create_project"]["supported"] is True
-    assert by_name["jsm.configure_sla"]["supported"] is False
+    assert by_name["jsm.configure_sla_calendar"]["supported"] is False
 
 
 async def test_long_master_prompt_is_accepted(
@@ -498,4 +503,107 @@ async def test_unsafe_automation_step_is_skipped_not_blocking(
     assert run["status"] == "completed_with_errors", run["plan_issues"]
     ops = {o["op_id"]: o for o in run["operations"]}
     assert ops["s1"]["status"] == "completed"
-    assert ops["s2"]["status"] == "skipped" and "EVERY issue" in ops["s2"]["message"]
+    assert ops["s2"]["status"] == "skipped" and "every issue" in ops["s2"]["message"]
+
+
+async def test_requirements_ledger_reports_what_was_asked_not_just_steps(
+    client: httpx.AsyncClient, app: FastAPI, fake_atlassian: FakeAtlassian, fake_llm: FakeLLM
+) -> None:
+    StatefulSite(fake_atlassian)
+    fake_llm.plan = PLAN
+    fake_llm.requirements = [
+        "Project BANK",
+        "Documentation space BANKDOC",
+        "Welcome article",
+        "2 sample tickets",
+        "Portal logo",
+    ]
+    fake_llm.coverage = [
+        {"requirement": "Project BANK", "operation_ids": ["s1"]},
+        {"requirement": "Documentation space BANKDOC", "operation_ids": ["s2"]},
+        {"requirement": "Welcome article", "operation_ids": ["s3"]},
+        {"requirement": "2 sample tickets", "operation_ids": []},
+        {"requirement": "Portal logo", "operation_ids": [], "manual_reason": "No API"},
+    ]
+    run = await _run(client, app, "Bank IT ka project, docs aur 2 sample tickets banao")
+    # the forgotten item was sent back to the planner as a gap
+    assert any(
+        "does not fully deliver yet" in p and "2 sample tickets" in p for _, p in fake_llm.prompts
+    )
+    await client.post(f"/api/v1/runs/{run['id']}/approve", json={})
+    await wait_for_run(app, run["id"])
+    report = (await client.get(f"/api/v1/runs/{run['id']}")).json()["report"]
+    states = {r["requirement"]: r["status"] for r in report["requirements"]}
+    assert states == {
+        "Project BANK": "done",
+        "Documentation space BANKDOC": "done",
+        "Welcome article": "done",
+        "2 sample tickets": "missing",
+        "Portal logo": "manual",
+        "SLA goals": "manual",  # an unsupported step no requirement claimed is still listed
+    }
+    assert report["completion_percent"] == 75
+    assert "3 of 6 done" in report["summary"] and "1 not planned" in report["summary"]
+
+
+async def test_rejected_step_is_auto_corrected_instead_of_skipped(
+    client: httpx.AsyncClient, app: FastAPI, fake_atlassian: FakeAtlassian, fake_llm: FakeLLM
+) -> None:
+    StatefulSite(fake_atlassian)
+    filters: dict[str, dict[str, Any]] = {}
+
+    def parse(request: httpx.Request) -> httpx.Response:
+        queries = body(request)["queries"]
+        return httpx.Response(
+            200,
+            json={
+                "queries": [
+                    {
+                        "query": q,
+                        "errors": ["Expecting operator but got '('."] if "slaFunction" in q else [],
+                    }
+                    for q in queries
+                ]
+            },
+        )
+
+    def create(request: httpx.Request) -> httpx.Response:
+        data = body(request)
+        filters["900"] = {"id": "900", "name": data["name"], "jql": data["jql"]}
+        return httpx.Response(200, json=filters["900"])
+
+    fake_atlassian.add_handler("POST", "/rest/api/3/jql/parse", parse)
+    fake_atlassian.add("GET", "/rest/api/3/filter/search", json={"values": [], "isLast": True})
+    fake_atlassian.add_handler("POST", "/rest/api/3/filter", create)
+    fake_atlassian.add_pattern(
+        "GET", r"/rest/api/3/filter/(\d+)", lambda _r, fid: httpx.Response(200, json=filters[fid])
+    )
+    fake_llm.plan = {
+        "summary": "SLA filter",
+        "operations": [
+            {
+                "id": "s1",
+                "operation": "jira.create_filter",
+                "description": "SLA breached filter",
+                "params": {
+                    "name": "SLA Breached",
+                    "jql": "resolution = Unresolved AND (slaFunction(breached()))",
+                },
+            }
+        ],
+    }
+    fake_llm.step_repairs = [
+        {
+            "fixable": True,
+            "params": {"name": "SLA Breached", "jql": '"Time to resolution" = breached()'},
+            "explanation": "slaFunction is not JQL; SLA fields support breached() directly",
+        }
+    ]
+    run = await _run(client, app, "SLA breached tickets ka filter banao")
+    assert not [i for i in run["plan_issues"] if i["severity"] == "error"], run["plan_issues"]
+    assert run["operations"][0]["params"]["jql"] == '"Time to resolution" = breached()'
+    await client.post(f"/api/v1/runs/{run['id']}/approve", json={})
+    await wait_for_run(app, run["id"])
+    done = (await client.get(f"/api/v1/runs/{run['id']}")).json()
+    assert done["operations"][0]["status"] == "completed"
+    assert filters["900"]["jql"] == '"Time to resolution" = breached()'

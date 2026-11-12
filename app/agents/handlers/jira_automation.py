@@ -261,8 +261,12 @@ async def create_automation_rule(
             )
     project = await require_project(ctx, p.project_key)
     cloud_id = await ctx.jira.get_cloud_id()
+    project_ari = f"ari:cloud:jira:{cloud_id}:project/{project['id']}"
     for existing in await ctx.jira.list_automation_rules(cloud_id):
-        if same_name(existing.get("name"), p.name):
+        if not same_name(existing.get("name"), p.name):
+            continue
+        # A same-named rule of another project is not this project's rule.
+        if project_ari in await _rule_scopes(ctx, cloud_id, existing):
             return _result(ctx, p, str(existing.get("uuid")), cloud_id, reused=True)
     priority_ids = await _priority_ids(ctx, p)
     rule = build_rule(p, cloud_id, str(project["id"]), ctx.account_id, priority_ids)
@@ -282,6 +286,16 @@ async def create_automation_rule(
         ) from exc
     rule_id = str(body.get("ruleUuid") or body.get("uuid") or body.get("id") or "")
     return _result(ctx, p, rule_id, cloud_id, reused=False)
+
+
+async def _rule_scopes(ctx: HandlerContext, cloud_id: str, summary: dict[str, Any]) -> list[str]:
+    scopes = summary.get("ruleScopeARIs")
+    if scopes is None:
+        detail = await ctx.jira.get_automation_rule(cloud_id, str(summary.get("uuid")))
+        nested = detail.get("rule")
+        rule: dict[str, Any] = nested if isinstance(nested, dict) else detail
+        scopes = rule.get("ruleScopeARIs") or []
+    return [str(s) for s in scopes]
 
 
 def _result(

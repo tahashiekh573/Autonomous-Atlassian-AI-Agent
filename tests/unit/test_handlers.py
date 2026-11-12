@@ -102,7 +102,7 @@ async def test_invalid_params_are_rejected_without_api_calls(
 
 
 async def test_unsupported_operation_explains_alternative(ctx: HandlerContext) -> None:
-    outcome = await JsmAgent(ctx).run(req("jsm.configure_sla", {}))
+    outcome = await JsmAgent(ctx).run(req("jsm.configure_sla_calendar", {}))
     assert outcome.error_code == "operation_unsupported"
     assert "Project settings" in outcome.message
 

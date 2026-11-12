@@ -20,7 +20,7 @@ from app.schemas.agents import OperationRequest, VerificationRequest
 from tests.fakes import SITE_URL, FakeAtlassian, StatefulSite, body
 
 CREDS = AtlassianCredentials(SITE_URL, "ada@acme.com", SecretStr("t"))
-FORMS = "/jira/forms/cloud/cloud-1/project/ITSD/form"
+FORMS = "/jira/forms/cloud/cloud-1/project/10/form"  # by project id, not key
 ASSETS = "/jsm/assets/workspace/ws-1/v1"
 
 

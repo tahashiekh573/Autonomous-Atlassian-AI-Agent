@@ -104,11 +104,13 @@ async def create_form(ctx: HandlerContext, p: CreateFormParams) -> HandlerResult
                     f"Request type '{ref}' not found in {desk.project_key} (available: {names})."
                 )
             request_type_ids.append(int(match["id"]))
-    for existing in await ctx.forms.list_forms(cloud_id, desk.project_key):
+    # Forms API by project id: keys of deleted-and-recreated projects can resolve to the old one.
+    for existing in await ctx.forms.list_forms(cloud_id, desk.project_id):
         if same_name(existing.get("name"), p.name):
             return _result(
                 ctx,
                 desk.project_key,
+                desk.project_id,
                 str(existing["id"]),
                 p,
                 request_type_ids,
@@ -127,15 +129,18 @@ async def create_form(ctx: HandlerContext, p: CreateFormParams) -> HandlerResult
         else None
     )
     body = await ctx.forms.create_form(
-        cloud_id, desk.project_key, await build_form_design(ctx, p), publish
+        cloud_id, desk.project_id, await build_form_design(ctx, p), publish
     )
     form_id = str(body.get("id") or (body.get("formTemplate") or {}).get("id") or "")
-    return _result(ctx, desk.project_key, form_id, p, request_type_ids, cloud_id, reused=False)
+    return _result(
+        ctx, desk.project_key, desk.project_id, form_id, p, request_type_ids, cloud_id, reused=False
+    )
 
 
 def _result(
     ctx: HandlerContext,
     project_key: str,
+    project_id: str,
     form_id: str,
     p: CreateFormParams,
     request_type_ids: list[int],
@@ -151,6 +156,7 @@ def _result(
         outputs={
             "id": form_id,
             "project_key": project_key,
+            "project_id": project_id,
             "cloud_id": cloud_id,
             "request_type_ids": request_type_ids,
             "url": url,

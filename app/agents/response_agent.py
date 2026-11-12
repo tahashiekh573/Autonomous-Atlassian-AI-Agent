@@ -10,6 +10,7 @@ from collections import Counter
 from pydantic import BaseModel, Field
 
 from app.agents.base_agent import LLMAgent
+from app.agents.requirements import judge
 from app.core.exceptions import LLMError
 from app.core.prompts import load_prompt
 from app.schemas.agents import ExecutionReport, OperationSummary, ReportInput
@@ -46,6 +47,26 @@ class ResponseAgent(LLMAgent[ReportInput, ExecutionReport]):
         )
         # Counts always come from data: the model once reported "20 request types" for 16.
         facts = _facts(ops, completed, failed, skipped)
+        report.requirements, report.completion_percent = judge(data.coverage, ops)
+        if report.requirements:
+            states = Counter(r.status for r in report.requirements)
+            facts += (
+                f" Requested items: {states['done']} of {len(report.requirements)} done"
+                + (f", {states['partial']} partial" if states["partial"] else "")
+                + (f", {states['failed']} failed" if states["failed"] else "")
+                + (f", {states['missing']} not planned" if states["missing"] else "")
+                + (f", {states['manual']} need manual setup" if states["manual"] else "")
+                + (
+                    f" ({report.completion_percent}% complete)."
+                    if report.completion_percent is not None
+                    else "."
+                )
+            )
+            report.issues += [
+                f"{r.requirement}: {r.status}" + (f" - {r.note}" if r.note else "")
+                for r in report.requirements
+                if r.status in ("failed", "missing", "partial")
+            ]
         report.summary = facts
         try:
             narrative = await self._structured(

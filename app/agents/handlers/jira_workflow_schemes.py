@@ -82,7 +82,7 @@ async def configure_workflow_scheme(
                     f"Issue type '{name}' is not in {p.project_key} "
                     f"(available: {', '.join(str(t['name']) for t in project['issueTypes'])})."
                 )
-            wanted[type_id] = mapping.workflow_name
+            wanted[type_id] = ctx.workflow_name(mapping.workflow_name)
 
     current_ref = await ctx.jira.get_project_workflow_scheme(project_id)
     current = await ctx.jira.get_workflow_scheme(str(current_ref["id"])) if current_ref else {}
@@ -235,6 +235,7 @@ async def _wait_for_task(ctx: HandlerContext, task_id: str) -> None:
 
 
 async def update_workflow(ctx: HandlerContext, p: UpdateWorkflowParams) -> HandlerResult:
+    p = p.model_copy(update={"workflow_name": ctx.workflow_name(p.workflow_name)})
     body = await ctx.jira.get_workflows_by_name([p.workflow_name])
     workflow = next(
         (w for w in body.get("workflows") or [] if same_name(w.get("name"), p.workflow_name)), None

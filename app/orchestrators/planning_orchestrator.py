@@ -1,11 +1,14 @@
 """Planning graph: understand → (clarify | discover → plan → preflight)."""
 
+import json
 import logging
 from typing import Any, Literal, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field
 
+from app.agents.step_repair_agent import StepRepairInput
+from app.core.exceptions import LLMError
 from app.orchestrators.agent_set import AgentSet
 from app.orchestrators.events import RunEventSink
 from app.orchestrators.plan_validation import fill_missing_names, validate_plan
@@ -16,10 +19,11 @@ from app.schemas.agents import (
     OperationOutcome,
     OperationRequest,
     PlanIssue,
+    PlannedOperation,
     PlanningInput,
     UnderstandingInput,
 )
-from app.schemas.operations.catalog import describe_catalog, get_spec
+from app.schemas.operations.catalog import describe_catalog, get_spec, param_errors
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +54,15 @@ _DISCOVERY = {
     "jsm": ("jsm.list_service_desks", {}, "service_desks"),
     "confluence": ("confluence.list_spaces", {}, "spaces"),
 }
+
+
+MAX_PLAN_REPAIRS = 12
+
+
+def _not_repairable(error: str) -> bool:
+    """Conflicts that are facts about the site, not mistakes in the params."""
+    text = error.casefold()
+    return any(k in text for k in ("already used", "already exists", "permission", "licen"))
 
 
 class PlanningOrchestrator:
@@ -175,6 +188,48 @@ class PlanningOrchestrator:
         )
         return {"plan": plan}
 
+    async def _repair(
+        self, state: _State, op: PlannedOperation, error: str
+    ) -> OperationOutcome | None:
+        """Ask the repair agent for corrected params and re-check; None when not fixed."""
+        if self._agents.repair is None or _not_repairable(error):
+            return None
+        try:
+            fix = await self._agents.repair.run(
+                StepRepairInput(
+                    instruction=state["request"].text,
+                    operation=op.operation,
+                    description=op.description,
+                    params=op.params,
+                    error=error,
+                    facts=json.dumps(state.get("workspace", {}), ensure_ascii=False),
+                )
+            )
+        except LLMError:
+            return None
+        spec = get_spec(op.operation)
+        if not fix.fixable or fix.params == op.params or spec is None:
+            return None
+        if param_errors(spec.params, fix.params):
+            return None
+        agent = self._agents.for_operation(op.operation)
+        result = await agent.run(
+            OperationRequest(
+                run_id=state["run_id"],
+                op_id=op.id,
+                operation=op.operation,
+                params=fix.params,
+                mode="check",
+            )
+        )
+        if result.conflict:
+            return None
+        op.params = fix.params
+        state["plan"].assumptions.append(
+            f"{op.id} auto-corrected after Jira rejected it ({error[:120]}): {fix.explanation}"
+        )
+        return result
+
     async def _preflight(self, state: _State) -> _State:
         plan = state["plan"]
         named = fill_missing_names(plan)
@@ -185,6 +240,7 @@ class PlanningOrchestrator:
         issues = validate_plan(plan, state["capabilities"], self._max_operations)
         checks: dict[str, OperationOutcome] = {}
         invalid_ops = {i.operation_id for i in issues if i.severity == "error"}
+        repairs = 0
         for op in plan.operations:
             spec = get_spec(op.operation)
             if (
@@ -209,6 +265,11 @@ class PlanningOrchestrator:
                     mode="check",
                 )
             )
+            if result.conflict and repairs < MAX_PLAN_REPAIRS:
+                fixed = await self._repair(state, op, result.message)
+                if fixed is not None:
+                    repairs += 1
+                    result = fixed
             checks[op.id] = result
             if result.conflict:
                 issues.append(

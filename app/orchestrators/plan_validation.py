@@ -6,6 +6,7 @@ from typing import Any
 from app.orchestrators.references import find_refs
 from app.schemas.agents import ExecutionPlan, PlanIssue
 from app.schemas.operations.catalog import get_spec, param_errors
+from app.schemas.operations.rules import automation_problem
 
 
 def _has_cycle(deps: dict[str, list[str]]) -> bool:
@@ -27,7 +28,6 @@ def _has_cycle(deps: dict[str, list[str]]) -> bool:
 
 _ANY_REF = re.compile(r"\$\{[^}]*\}")
 _STEP_REF = re.compile(r"\$\{s\d{1,3}\.[A-Za-z0-9_.]+\}")
-_EVERY_ISSUE_ACTIONS = {"transition", "assign", "set_priority", "send_email"}
 
 
 def _bad_refs(value: Any) -> set[str]:
@@ -38,33 +38,6 @@ def _bad_refs(value: Any) -> set[str]:
     if isinstance(value, list):
         return set().union(*(_bad_refs(v) for v in value)) if value else set()
     return set()
-
-
-def _unsafe_automation(params: dict[str, Any]) -> str | None:
-    """Rules that would act on every issue of the project are almost always a planning
-    mistake (e.g. 'auto-close' firing on any update)."""
-    if params.get("jql_condition") or params.get("trigger_to_status"):
-        return None
-    if params.get("trigger") == "scheduled":
-        return (
-            None
-            if params.get("scheduled_jql")
-            or all(
-                str(a.get("type")) == "email_issue_list"
-                for a in params.get("actions") or []
-                if isinstance(a, dict)
-            )
-            else "Scheduled automation without scheduled_jql would act on nothing; add the JQL."
-        )
-    actions = {str(a.get("type")) for a in params.get("actions") or [] if isinstance(a, dict)}
-    risky = sorted(actions & _EVERY_ISSUE_ACTIONS)
-    if risky:
-        return (
-            f"Automation would run {', '.join(risky)} on EVERY issue "
-            f"({params.get('trigger')}) because it has no JQL condition; add a condition "
-            "or create it manually."
-        )
-    return None
 
 
 def fill_missing_names(plan: ExecutionPlan) -> list[str]:
@@ -186,7 +159,7 @@ def validate_plan(
                 )
             )
         if op.operation == "jira.create_automation_rule":
-            problem = _unsafe_automation(op.params)
+            problem = automation_problem(op.params)
             if problem:
                 issues.append(PlanIssue(severity="error", operation_id=op.id, message=problem))
 

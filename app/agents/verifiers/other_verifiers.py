@@ -5,6 +5,8 @@ from typing import Any
 
 from app.agents.handlers import assets_handlers
 from app.agents.handlers.base import HandlerContext, same_name
+from app.agents.handlers.jsm_config import parse_duration, read_sla_goals
+from app.agents.handlers.jsm_handlers import resolve_service_desk
 from app.agents.handlers.storage_format import jira_issues_macro
 from app.agents.verifiers.base import Verifier, check, exists, out
 from app.agents.verifiers.jira_verifiers import issue, link
@@ -19,6 +21,25 @@ async def service_project(ctx: HandlerContext, p: Any, o: OperationOutcome) -> C
     return [
         check("project type", "service_desk", proj.get("projectTypeKey")),
         exists("service desk", desk is not None, desk.id if desk else None),
+    ]
+
+
+async def queue(ctx: HandlerContext, p: Any, o: OperationOutcome) -> Checks:
+    desk = await resolve_service_desk(ctx, p.project_key)
+    names = [str(q.get("name")) for q in await ctx.jsm.list_queues(desk.id)]
+    return [exists(f"queue {p.name}", any(same_name(n, p.name) for n in names))]
+
+
+async def sla_goals(ctx: HandlerContext, p: Any, o: OperationOutcome) -> Checks:
+    live = {(q.strip().casefold(), d) for q, d in await read_sla_goals(ctx, p)}
+    return [
+        check(
+            f"goal {g.jql}",
+            parse_duration(g.duration),
+            g.duration,
+            passed=(g.jql.strip().casefold(), parse_duration(g.duration)) in live,
+        )
+        for g in p.goals
     ]
 
 
@@ -139,7 +160,9 @@ async def project_space_link(ctx: HandlerContext, p: Any, o: OperationOutcome) -
 
 
 async def form(ctx: HandlerContext, p: Any, o: OperationOutcome) -> Checks:
-    body = await ctx.forms.get_form(out(o, "cloud_id"), out(o, "project_key"), out(o, "id"))
+    body = await ctx.forms.get_form(
+        out(o, "cloud_id"), out(o, "project_id") or out(o, "project_key"), out(o, "id")
+    )
     design = body.get("design") or {}
     checks = [
         check("name", p.name, (design.get("settings") or {}).get("name")),
@@ -185,6 +208,8 @@ async def assets_objects(ctx: HandlerContext, p: Any, o: OperationOutcome) -> Ch
 
 VERIFIERS: dict[str, Verifier] = {
     "jsm.create_form": form,
+    "jsm.create_queue": queue,
+    "jsm.configure_sla": sla_goals,
     "assets.create_schema": assets_schema,
     "assets.create_objects": assets_objects,
     "jsm.create_service_project": service_project,

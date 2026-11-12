@@ -3,7 +3,13 @@
 import uuid
 from typing import Any
 
-from app.agents.handlers.base import CheckResult, HandlerContext, HandlerResult, same_name
+from app.agents.handlers.base import (
+    CheckResult,
+    HandlerContext,
+    HandlerResult,
+    free_name,
+    same_name,
+)
 from app.agents.handlers.jira_common import require_project
 from app.agents.handlers.jira_config import find_global_status
 from app.core.exceptions import OperationInputError
@@ -110,14 +116,39 @@ async def check_create_workflow(ctx: HandlerContext, p: CreateWorkflowParams) ->
     return CheckResult(notes=["Jira validated the workflow definition."])
 
 
+async def _same_definition(ctx: HandlerContext, name: str, p: CreateWorkflowParams) -> bool:
+    """True when the existing workflow has exactly the requested statuses and transitions."""
+    body = await ctx.jira.get_workflows_by_name([name])
+    wf = next((w for w in body.get("workflows") or [] if same_name(w.get("name"), name)), None)
+    if wf is None:
+        return False
+    by_ref = {str(s.get("statusReference") or s.get("id")): s for s in body.get("statuses") or []}
+    statuses = {
+        str(by_ref.get(str(s.get("statusReference")), {}).get("name", "")).casefold()
+        for s in wf.get("statuses") or []
+    }
+    transitions = {str(t.get("name")).casefold() for t in wf.get("transitions") or []}
+    return (
+        statuses == {s.name.casefold() for s in p.statuses}
+        and {t.name.casefold() for t in p.transitions} <= transitions
+    )
+
+
 async def create_workflow(ctx: HandlerContext, p: CreateWorkflowParams) -> HandlerResult:
+    requested = p.name
     existing = await _find_workflow(ctx, p.name)
     if existing:
-        return HandlerResult(
-            message=f"Workflow '{p.name}' already exists.",
-            outputs={"name": p.name},
-            reused_existing=True,
-        )
+        if await _same_definition(ctx, p.name, p):
+            return HandlerResult(
+                message=f"Workflow '{p.name}' already exists with these statuses and transitions.",
+                outputs={"name": p.name},
+                reused_existing=True,
+            )
+        # Another workflow owns the name but has different statuses: never hand that one out
+        # as "done" - create the requested definition under the next free name.
+        taken = [str(w.get("name")) for w in await ctx.jira.search_workflows(p.name)]
+        p = p.model_copy(update={"name": free_name(p.name, taken)})
+        ctx.alias_workflow(requested, p.name)
     payload = await build_workflow_payload(ctx, p)
     errors = _blocking(await ctx.jira.validate_workflow_create(payload))
     if errors:
@@ -127,7 +158,13 @@ async def create_workflow(ctx: HandlerContext, p: CreateWorkflowParams) -> Handl
     workflow_id = str(created.get("id") or "")
     return HandlerResult(
         message=f"Created workflow '{p.name}' with {len(p.statuses)} statuses and "
-        f"{len(p.transitions)} transitions.",
+        f"{len(p.transitions)} transitions"
+        + (
+            f" ('{requested}' already existed with different statuses)"
+            if p.name != requested
+            else ""
+        )
+        + ".",
         outputs={"id": workflow_id, "name": p.name},
         resource=ResourceRef(type="jira_workflow", id=workflow_id, title=p.name),
     )
@@ -136,6 +173,7 @@ async def create_workflow(ctx: HandlerContext, p: CreateWorkflowParams) -> Handl
 async def assign_workflow(ctx: HandlerContext, p: AssignWorkflowParams) -> HandlerResult:
     project = await require_project(ctx, p.project_key)
     project_id = str(project["id"])
+    p = p.model_copy(update={"workflow_name": ctx.workflow_name(p.workflow_name)})
     scheme_name = p.scheme_name or f"{p.project_key}: {p.workflow_name} scheme"
     mappings: dict[str, str] = {}
     for name in p.issue_types:

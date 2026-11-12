@@ -14,6 +14,7 @@ from app.clients.jsm.types import JsmInfo, ServiceDesk
 SERVICE = "jsm"
 _BASE = "/rest/servicedeskapi"
 _EXPERIMENTAL = {"X-ExperimentalApi": "opt-in"}
+_NO_CHECK = {"X-Atlassian-Token": "no-check"}
 
 
 class JsmClient:
@@ -94,6 +95,40 @@ class JsmClient:
                 f"{_BASE}/servicedesk/{seg(service_desk_id)}/queue", {"includeCount": "true"}
             )
         ]
+
+    # --- internal agent-UI endpoints (queues, SLA) --------------------------------------------
+    # Not in the public REST API; these are the endpoints Jira's own project settings use.
+    # They need the XSRF bypass header and may change without notice.
+
+    async def create_queue(self, project_key: str, payload: dict[str, Any]) -> dict[str, Any]:
+        body: dict[str, Any] = await self._http.request(
+            "POST",
+            f"/rest/servicedesk/1/servicedesk/{seg(project_key)}/queues",
+            service=SERVICE,
+            json=payload,
+            headers=_NO_CHECK,
+        )
+        return body
+
+    async def get_sla_metrics(self, project_key: str) -> dict[str, Any]:
+        """{timeMetrics: [...full config...], calendarRefs: [{id, name, default}], ...}."""
+        body: dict[str, Any] = await self._http.request(
+            "GET",
+            f"/rest/servicedesk/1/servicedesk/agent/{seg(project_key)}/sla/metrics",
+            service=SERVICE,
+        )
+        return body
+
+    async def update_sla_metric(
+        self, project_key: str, metric_id: str, metric: dict[str, Any]
+    ) -> None:
+        await self._http.request(
+            "PUT",
+            f"/rest/servicedesk/1/servicedesk/agent/{seg(project_key)}/sla/metrics/{seg(metric_id)}",
+            service=SERVICE,
+            json=metric,
+            headers=_NO_CHECK,
+        )
 
     # --- organizations & customers ------------------------------------------------------------
     async def list_organizations(self, service_desk_id: str | None = None) -> list[dict[str, Any]]:

@@ -91,7 +91,9 @@ def test_validation_flags_bad_plans() -> None:
             description="",
             params={"space_key": "${s9.key}", "title": "x"},
         ),
-        PlannedOperation(id="s4", operation="jsm.configure_sla", description="", params={}),
+        PlannedOperation(
+            id="s4", operation="jsm.configure_sla_calendar", description="", params={}
+        ),
     )
     caps = {"products": {"jira": True, "jsm": True, "confluence": False}, "is_jira_admin": False}
     messages = [(i.severity, i.operation_id, i.message) for i in validate_plan(plan, caps, 40)]

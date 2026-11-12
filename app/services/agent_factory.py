@@ -10,6 +10,7 @@ from app.agents.jira_agent import JiraAgent
 from app.agents.jsm_agent import JsmAgent
 from app.agents.planning_agent import PlanningAgent
 from app.agents.response_agent import ResponseAgent
+from app.agents.step_repair_agent import StepRepairAgent
 from app.agents.verification_agent import VerificationAgent
 from app.clients.atlassian.factory import AtlassianClients
 from app.clients.llm.base import LLMClient
@@ -42,4 +43,5 @@ def build_agent_set(
         integration=IntegrationAgent(context),
         verification=VerificationAgent(context, retry_delay_seconds=verification_retry_delay),
         response=ResponseAgent(llm),
+        repair=StepRepairAgent(llm),
     )

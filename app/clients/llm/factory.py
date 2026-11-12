@@ -21,6 +21,7 @@ def build_llm_client(settings: Settings) -> LLMClient | None:
         return OpenAIClient(
             settings.openai_api_key,
             model=settings.openai_model,
+            reasoning_effort=settings.openai_reasoning_effort,
             base_url=settings.openai_base_url,
             timeout_seconds=settings.llm_timeout_seconds,
             temperature=settings.llm_temperature,

@@ -11,6 +11,11 @@ from app.clients.llm.rate_limiter import RateLimiter
 from app.core.exceptions import LLMError
 
 
+def _is_reasoning_model(model: str) -> bool:
+    name = model.casefold()
+    return name.startswith(("gpt-5", "o1", "o3", "o4"))
+
+
 class OpenAIClient(LLMClient):
     provider = "openai"
 
@@ -23,10 +28,12 @@ class OpenAIClient(LLMClient):
         timeout_seconds: float,
         temperature: float,
         requests_per_minute: int = 0,
+        reasoning_effort: str = "low",
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         self.model = model
         self._temperature = temperature
+        self._reasoning_effort = reasoning_effort
         self._limiter = RateLimiter(requests_per_minute)
         self._client = httpx.AsyncClient(
             base_url=base_url.rstrip("/"),
@@ -41,12 +48,17 @@ class OpenAIClient(LLMClient):
     async def generate(self, *, system: str, prompt: str, json_mode: bool = False) -> str:
         payload: dict[str, Any] = {
             "model": self.model,
-            "temperature": self._temperature,
             "messages": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": prompt},
             ],
         }
+        if _is_reasoning_model(self.model):
+            # GPT-5 / o-series reject a custom temperature; depth is set by reasoning_effort.
+            payload["reasoning_effort"] = self._reasoning_effort
+            payload["max_completion_tokens"] = 32768
+        else:
+            payload["temperature"] = self._temperature
         if json_mode:
             payload["response_format"] = {"type": "json_object"}
         response = await post_with_retry(

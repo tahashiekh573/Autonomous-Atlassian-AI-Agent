@@ -68,6 +68,26 @@ class CoverageItem(BaseModel):
     )
 
 
+class RequirementChecklist(BaseModel):
+    """Every concrete deliverable in the user's request, extracted independently of planning."""
+
+    requirements: list[str] = Field(default_factory=list)
+
+
+class CoverageMap(BaseModel):
+    items: list[CoverageItem] = Field(default_factory=list)
+
+
+RequirementState = Literal["done", "partial", "failed", "manual", "missing"]
+
+
+class RequirementStatus(BaseModel):
+    requirement: str
+    status: RequirementState
+    operation_ids: list[str] = Field(default_factory=list)
+    note: str = ""
+
+
 class ExecutionPlan(BaseModel):
     summary: str
     operations: list[PlannedOperation] = Field(default_factory=list)
@@ -168,6 +188,7 @@ class ReportInput(BaseModel):
     language: Language = "en"
     plan_summary: str
     operations: list[OperationSummary]
+    coverage: list[CoverageItem] = Field(default_factory=list)
 
 
 class ExecutionReport(BaseModel):
@@ -178,3 +199,6 @@ class ExecutionReport(BaseModel):
     skipped: int = 0
     issues: list[str] = Field(default_factory=list)
     next_steps: list[str] = Field(default_factory=list)
+    # What the user asked for, item by item, judged from verified step results.
+    requirements: list[RequirementStatus] = Field(default_factory=list)
+    completion_percent: int | None = None

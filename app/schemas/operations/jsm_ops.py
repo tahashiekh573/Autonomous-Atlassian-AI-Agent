@@ -107,6 +107,47 @@ class CreateFormParams(ServiceDeskRef):
     )
 
 
+class CreateQueueParams(Params):
+    project_key: ProjectKey = Field(description="Service project key, e.g. EITSD")
+    name: str = Field(min_length=1, max_length=100)
+    jql: str = Field(description="Queue filter; the project clause is added automatically")
+    columns: list[str] = Field(
+        default_factory=lambda: [
+            "issuetype",
+            "issuekey",
+            "summary",
+            "reporter",
+            "assignee",
+            "status",
+            "priority",
+            "created",
+        ],
+        description="Field ids shown as queue columns",
+    )
+
+
+class SlaGoalDef(Params):
+    jql: str = Field(description="Which requests the goal applies to, e.g. priority = Highest")
+    duration: str = Field(description="Target time, e.g. 15m, 2h, 1d, 1h 30m")
+
+
+class ConfigureSlaParams(Params):
+    project_key: ProjectKey
+    metric: str = Field(description="Existing SLA metric, e.g. Time to first response")
+    goals: list[SlaGoalDef] = Field(min_length=1, description="Goals in priority order")
+    calendar: str | None = Field(
+        default=None,
+        description="Calendar name or 'business hours' / '24/7' (existing calendars only)",
+    )
+    pause_statuses: list[str] = Field(
+        default_factory=list,
+        description="Statuses where the clock pauses (e.g. Waiting for customer)",
+    )
+    stop_statuses: list[str] = Field(
+        default_factory=list, description="Statuses that stop the clock (e.g. Resolved, Closed)"
+    )
+
+
 def _unsupported(name: str, description: str, limitation: str, alternative: str) -> OperationSpec:
     return OperationSpec(
         name,
@@ -212,24 +253,34 @@ SPECS: list[OperationSpec] = [
         RequestReportParams,
         requires_products=_JSM,
     ),
-    _unsupported(
+    OperationSpec(
         "jsm.configure_sla",
-        "Create or edit SLA metrics, goals, start/pause/stop conditions.",
-        "JSM has no public API for SLA configuration.",
-        "Project settings → SLAs. The ITSM template already ships 'Time to first "
-        "response' and 'Time to resolution'; use jsm.sla_report to verify they run.",
+        "jsm",
+        "modify",
+        "Set the goals of an existing SLA metric (e.g. Time to first response / Time to "
+        "resolution): one goal per JQL (e.g. per priority) with a target time, the calendar "
+        "(business hours or 24/7) and the statuses that pause or stop the clock. One step per "
+        "metric. Existing goals of that metric are replaced; the default goal is kept.",
+        ConfigureSlaParams,
+        requires_products=_JSM,
     ),
     _unsupported(
         "jsm.configure_sla_calendar",
         "Create SLA calendars / working hours.",
-        "No public API for SLA calendars.",
-        "Project settings → SLAs → Calendars.",
+        "Jira has no API to create or edit SLA calendars. jsm.configure_sla uses an existing "
+        "calendar (the ITSM template ships 'Sample 9-5 Calendar' for business hours).",
+        "Project settings → SLAs → Calendars: adjust working hours (e.g. 9:00-18:00) or add "
+        "holidays.",
     ),
-    _unsupported(
+    OperationSpec(
         "jsm.create_queue",
-        "Create or edit queues.",
-        "Queues are read-only in the public API.",
-        "Queues → Manage queues; jsm.list_queues verifies the result.",
+        "jsm",
+        "create",
+        "Create an agent queue in a service project with a JQL filter (e.g. unassigned, high "
+        "priority, SLA breached, waiting for customer) and its columns. Reuses a queue that "
+        "already has the name.",
+        CreateQueueParams,
+        requires_products=_JSM,
     ),
     OperationSpec(
         "jsm.create_form",

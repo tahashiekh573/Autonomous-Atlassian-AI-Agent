@@ -53,6 +53,8 @@ class Settings(BaseSettings):
     gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta"
     openai_api_key: SecretStr | None = None
     openai_model: str = "gpt-4.1-mini"
+    # GPT-5 / o-series only: minimal | low | medium | high (planning quality vs. latency)
+    openai_reasoning_effort: Literal["minimal", "none", "low", "medium", "high"] = "low"
     openai_base_url: str = "https://api.openai.com/v1"
     llm_timeout_seconds: float = 120.0
     llm_temperature: float = 0.1

@@ -297,12 +297,25 @@ class GadgetDef(Params):
     ]
     title: str | None = None
     column: int = Field(default=0, ge=0, le=3)
+    jql: str | None = Field(
+        default=None,
+        description="Data for this gadget (a saved filter is created); default: the project",
+    )
+    stat_type: str | None = Field(
+        default=None,
+        description="Grouping for pie/statistics gadgets: priorities, statuses, assignees, "
+        "issuetype, reporter, components, labels",
+    )
+    days: int = Field(default=30, ge=1, le=365, description="Period for chart gadgets")
 
 
 class CreateDashboardParams(Params):
     name: str
     description: str = ""
     share_with_project_key: ProjectKey | None = None
+    project_key: ProjectKey | None = Field(
+        default=None, description="Default data source for every gadget"
+    )
     gadgets: list[GadgetDef] = Field(default_factory=list)
 
 

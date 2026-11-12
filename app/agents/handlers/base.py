@@ -50,6 +50,19 @@ class HandlerContext:
     def assets(self) -> AssetsClient:
         return self.clients.assets
 
+    def workflow_name(self, name: str) -> str:
+        """The name a workflow requested as `name` actually got in this run.
+
+        When a different workflow already owns the requested name, the new one is created as
+        "Name 2" (never silently reusing a workflow with other statuses); later steps that refer
+        to it by the requested name are pointed at the new one.
+        """
+        aliases: dict[str, str] = self.cache.get("workflow_alias", {})
+        return aliases.get(name.casefold(), name)
+
+    def alias_workflow(self, requested: str, actual: str) -> None:
+        self.cache.setdefault("workflow_alias", {})[requested.casefold()] = actual
+
     @property
     def idempotency_label(self) -> str:
         """Stable per (run, step): lets a retried step find what it already created.

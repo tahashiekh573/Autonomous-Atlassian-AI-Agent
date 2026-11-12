@@ -120,12 +120,13 @@ async def configured_scheme(ctx: HandlerContext, p: Any, o: OperationOutcome) ->
         full = await ctx.jira.get_workflow_scheme(str(scheme["id"]))
         mapped = {str(v) for v in (full.get("issueTypeMappings") or {}).values()}
         for m in p.mappings:
-            checks.append(exists(f"{m.workflow_name} mapped", m.workflow_name in mapped))
+            name = ctx.workflow_name(m.workflow_name)
+            checks.append(exists(f"{name} mapped", name in mapped))
     return checks
 
 
 async def updated_workflow(ctx: HandlerContext, p: Any, o: OperationOutcome) -> Checks:
-    body = await ctx.jira.get_workflows_by_name([p.workflow_name])
+    body = await ctx.jira.get_workflows_by_name([ctx.workflow_name(p.workflow_name)])
     wf = (body.get("workflows") or [{}])[0]
     names = {str(t.get("name")).casefold() for t in wf.get("transitions") or []}
     checks = [exists(f"transition {t.name}", t.name.casefold() in names) for t in p.add_transitions]

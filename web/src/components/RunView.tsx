@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import { errorText } from "../hooks";
-import type { Operation, Role, RunDetail } from "../types";
+import type { Operation, Report, Role, RunDetail } from "../types";
 import { AgentPipeline, RunProgress } from "./AgentPipeline";
 import { human, OpBadge, RiskBadge, RunBadge } from "./Badges";
 
@@ -190,6 +190,52 @@ function OperationRow({ op, index, selectable, checked, lockedReason, onToggle }
   );
 }
 
+const REQ_LABEL: Record<string, { label: string; cls: string; icon: string }> = {
+  done: { label: "Done", cls: "ok", icon: "✓" },
+  partial: { label: "Partial", cls: "warn", icon: "◐" },
+  failed: { label: "Failed", cls: "err", icon: "✕" },
+  missing: { label: "Not planned", cls: "err", icon: "!" },
+  manual: { label: "Manual", cls: "info", icon: "✋" },
+};
+
+/** What the user asked for, item by item, judged from verified results (not step counts). */
+function RequirementsChecklist({ report }: { report: Report }) {
+  const items = report.requirements ?? [];
+  if (!items.length) return null;
+  const pct = report.completion_percent;
+  const done = items.filter((r) => r.status === "done").length;
+  return (
+    <div className="req-ledger">
+      <div className="req-head">
+        <h3 style={{ margin: 0 }}>Your request, item by item</h3>
+        <span className="small muted">{done} of {items.length} done</span>
+      </div>
+      {pct != null && (
+        <div className="req-meter" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}
+          aria-label="Completion of the requested items">
+          <span style={{ width: `${pct}%` }} className={pct === 100 ? "full" : ""} />
+          <b>{pct}% of the request completed</b>
+        </div>
+      )}
+      <ul className="req-list">
+        {items.map((r, n) => {
+          const s = REQ_LABEL[r.status];
+          return (
+            <li key={n} className={`req ${r.status}`}>
+              <span className={`req-icon ${s.cls}`} aria-hidden="true">{s.icon}</span>
+              <span className="req-text">
+                <span>{r.requirement}</span>
+                {r.note && <small className="muted">{r.note}</small>}
+              </span>
+              <span className={`badge ${s.cls}`}>{s.label}</span>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
 function ReportCard({ run, speak }: { run: RunDetail; speak: (text: string) => void }) {
   const report = run.report!;
   const resources = useMemo(() => report.created_resources, [report]);
@@ -200,6 +246,7 @@ function ReportCard({ run, speak }: { run: RunDetail; speak: (text: string) => v
         <button onClick={() => speak(report.summary)} aria-label="Read the summary aloud">🔊 Read aloud</button>
       </div>
       <p style={{ margin: 0 }}>{report.summary}</p>
+      <RequirementsChecklist report={report} />
       <div className="stats">
         <div className="stat"><b style={{ color: "var(--ok)" }}>{report.completed}</b>completed &amp; verified</div>
         <div className="stat"><b style={{ color: "var(--err)" }}>{report.failed}</b>failed</div>

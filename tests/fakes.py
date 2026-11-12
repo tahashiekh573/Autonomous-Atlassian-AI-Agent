@@ -323,17 +323,28 @@ class FakeLLM(LLMClient):
         self.invalid_first: set[str] = set()
         self.expansions: list[dict[str, Any]] = []
         self.param_fixes: list[dict[str, Any]] = []
+        self.requirements: list[str] = []
+        self.coverage: list[dict[str, Any]] = []
+        self.step_repairs: list[dict[str, Any]] = []
 
     async def generate(self, *, system: str, prompt: str, json_mode: bool = False) -> str:
         self.prompts.append((system[:60], prompt))
         if "Input Understanding Agent" in system:
             role, payload = "understanding", self.intent
+        elif "You repair ONE Atlassian Cloud administration step" in system:
+            role = "step_repair"
+            payload = self.step_repairs.pop(0) if self.step_repairs else {"fixable": False}
+        elif "precise checklist of deliverables" in system:
+            role, payload = "checklist", {"requirements": self.requirements}
+        elif "Planning Agent" in system and "## Requested items\n" in prompt:
+            role, payload = "coverage", {"items": self.coverage}
         elif "Planning Agent" in system and "Steps with invalid params" in prompt:
             role, payload = "repair", {"fixes": self.param_fixes}
         elif "Planning Agent" in system and (
             "## Current plan" in prompt
             or "Section to plan now" in prompt
             or "Steps already planned for this section" in prompt
+            or "does not fully deliver yet" in prompt
         ):
             role = "expansion"
             payload = (

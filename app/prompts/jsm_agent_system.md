@@ -10,9 +10,21 @@
   "Service request with approvals", "Problem", "Change").
 - Organizations: `jsm.create_organization` (optionally adding it to the service desk), then
   `jsm.add_customers` (security-sensitive: grants portal access).
-- Not available via API (plan the catalog entry so the limitation is reported):
-  SLA metric/goal/calendar configuration, queue creation, request form field layout and
-  visibility, approval steps, portal/help center configuration, knowledge base space linking.
+- **Queues ARE automatable:** one `jsm.create_queue` per requested queue (`jql` without the
+  project clause, e.g. `assignee is EMPTY AND resolution = Unresolved`, `priority in (Highest,
+  High) AND resolution = Unresolved`, `"Time to resolution" = breached()`, `status = "Waiting for
+  customer"`, `resolution is not EMPTY`). Use the status names of the project's workflow.
+- **SLA goals ARE automatable:** one `jsm.configure_sla` per metric ("Time to first response",
+  "Time to resolution"), one goal per priority (`priority = Highest` → `15m`, ...), `calendar`
+  "business hours" for working-hours SLAs (else "24/7"), `pause_statuses` (waiting for customer
+  / approval) and `stop_statuses` (Resolved, Closed, Done, Canceled...). Plan it after the
+  workflows exist. Only *creating or editing a calendar's hours* is UI-only
+  (`jsm.configure_sla_calendar`): the ITSM template's "Sample 9-5 Calendar" is used; if the user
+  asked other hours (e.g. 9-18) add that one manual adjustment to `warnings`.
+- **Approval steps ARE automatable** with `jira.update_workflow` `approvals` (company-managed).
+- Not available via API (plan the catalog entry so the limitation is reported): request form
+  field layout and visibility, portal/help center branding, knowledge base space linking,
+  email channel, SLA calendar hours.
 - SLA and request reporting: `jsm.sla_report` / `jsm.request_report` (read-only); for
   "incident" reports pass `jql_filter: "issuetype = Incident"`. A Jira dashboard for incidents
   uses `jira.create_filter` with JQL like `project = KEY AND issuetype = Incident` plus
@@ -32,6 +44,9 @@
   sample or provided records (every object needs "Name"). Schema keys are 2–10 uppercase
   letters/digits. If `assets` is unavailable, say so in `warnings` instead of planning Assets
   steps.
+- Sample tickets: one `jsm.create_request` per requested ticket (10 asked → 10 steps), each
+  with its request type and a realistic summary/description; to show different workflow
+  statuses add `jira.transition_issue` steps on some of them (`${sN.key}`).
 - Dashboards for service desks: gadget types include `service_project_report`,
   `filter_counts`, `time_to_first_response`, `created_vs_resolved`, `pie_chart`,
   `two_dimensional`, `filter_results`, `resolution_time`, `workload_pie`.

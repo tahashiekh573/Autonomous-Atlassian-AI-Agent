@@ -12,7 +12,7 @@ from app.agents.handlers.base import (
 )
 from app.agents.handlers.jira_common import browse_url, require_project, resolve_field_id
 from app.clients.jira.adf import to_adf
-from app.core.exceptions import AtlassianNotFoundError, OperationInputError
+from app.core.exceptions import AtlassianError, AtlassianNotFoundError, OperationInputError
 from app.schemas.agents import ResourceRef
 from app.schemas.operations.jira_ops import (
     CreateIssueParams,
@@ -131,15 +131,112 @@ async def transition_issue(ctx: HandlerContext, p: TransitionIssueParams) -> Han
         ),
         None,
     )
-    if match is None:
-        names = ", ".join(str(t.get("to", {}).get("name")) for t in transitions)
-        raise OperationInputError(
-            f"No transition from current status to '{p.to_status}' (reachable: {names})."
+    if match is not None:
+        await ctx.jira.transition_issue(p.issue_key, str(match["id"]))
+        return HandlerResult(
+            message=f"Moved {p.issue_key} to {p.to_status}.", outputs={"key": p.issue_key}
         )
-    await ctx.jira.transition_issue(p.issue_key, str(match["id"]))
+    # Not one step away (e.g. Triage -> Resolved): walk the workflow's shortest path.
+    path = await _status_path(ctx, p.issue_key, p.to_status)
+    if not path:
+        names = ", ".join(str(t.get("to", {}).get("name")) for t in transitions)
+        statuses = await _workflow_statuses(ctx, p.issue_key)
+        listing = ", ".join(f"{n} [{c}]" for n, c in statuses)
+        if statuses and not any(same_name(n, p.to_status) for n, _ in statuses):
+            raise OperationInputError(
+                f"Status '{p.to_status}' does not exist in this issue's workflow "
+                f"(statuses: {listing})."
+            )
+        raise OperationInputError(
+            f"No path in the workflow from the current status to '{p.to_status}' "
+            f"(next statuses: {names})."
+        )
+    visited: list[str] = []
+    for status_id, status_name in path:
+        options = await ctx.jira.get_transitions(p.issue_key)
+        step = next((t for t in options if str((t.get("to") or {}).get("id")) == status_id), None)
+        if step is None:
+            raise OperationInputError(
+                f"{p.issue_key} stopped in {visited[-1] if visited else 'its current status'}: "
+                f"the transition to '{status_name}' needs fields or conditions the API cannot "
+                "satisfy."
+            )
+        await ctx.jira.transition_issue(p.issue_key, str(step["id"]))
+        visited.append(status_name)
     return HandlerResult(
-        message=f"Moved {p.issue_key} to {p.to_status}.", outputs={"key": p.issue_key}
+        message=f"Moved {p.issue_key} to {p.to_status} via {' → '.join(visited)}.",
+        outputs={"key": p.issue_key, "path": visited},
     )
+
+
+async def _workflow_statuses(ctx: HandlerContext, issue_key: str) -> list[tuple[str, str]]:
+    """(name, category) of every status in the issue's workflow (empty if unavailable)."""
+    fields = (await ctx.jira.get_issue(issue_key, fields="project,issuetype"))["fields"]
+    try:
+        body = await ctx.jira.get_issue_type_workflow(
+            str(fields["project"]["id"]), str(fields["issuetype"]["id"])
+        )
+    except AtlassianError:
+        return []
+    workflows = body.get("workflows") or []
+    if not workflows:
+        return []
+    by_ref = {str(s.get("statusReference") or s.get("id")): s for s in body.get("statuses") or []}
+    return [
+        (str(by_ref[r].get("name")), str(by_ref[r].get("statusCategory") or ""))
+        for r in (str(s.get("statusReference")) for s in workflows[0].get("statuses") or [])
+        if r in by_ref
+    ]
+
+
+async def _status_path(ctx: HandlerContext, issue_key: str, target: str) -> list[tuple[str, str]]:
+    """Shortest list of (status id, name) hops to `target` in the issue's own workflow."""
+    fields = (await ctx.jira.get_issue(issue_key, fields="status,project,issuetype"))["fields"]
+    try:
+        body = await ctx.jira.get_issue_type_workflow(
+            str(fields["project"]["id"]), str(fields["issuetype"]["id"])
+        )
+    except AtlassianError:
+        return []
+    workflows = body.get("workflows") or []
+    if not workflows:
+        return []
+    ref_to = {
+        str(s.get("statusReference") or s.get("id")): (str(s.get("id")), str(s.get("name")))
+        for s in body.get("statuses") or []
+    }
+    edges: dict[str, set[str]] = {}
+    anywhere: set[str] = set()
+    for t in workflows[0].get("transitions") or []:
+        to = ref_to.get(str(t.get("toStatusReference")), ("", ""))[0]
+        if t.get("type") == "GLOBAL":
+            anywhere.add(to)
+        for link in t.get("links") or []:
+            frm = ref_to.get(str(link.get("fromStatusReference")), ("", ""))[0]
+            edges.setdefault(frm, set()).add(to)
+    names = dict(ref_to.values())
+    start = str(fields["status"]["id"])
+    goal = next((sid for sid, n in names.items() if same_name(n, target)), None)
+    if goal is None:
+        return []
+    previous: dict[str, str] = {start: start}
+    queue = [start]
+    while queue:
+        current = queue.pop(0)
+        if current == goal:
+            break
+        for nxt in sorted(edges.get(current, set()) | anywhere):
+            if nxt and nxt not in previous:
+                previous[nxt] = current
+                queue.append(nxt)
+    if goal not in previous:
+        return []
+    path: list[tuple[str, str]] = []
+    node = goal
+    while node != start:
+        path.append((node, names.get(node, node)))
+        node = previous[node]
+    return list(reversed(path))[:8]
 
 
 async def resolve_link_type(ctx: HandlerContext, name: str) -> str:

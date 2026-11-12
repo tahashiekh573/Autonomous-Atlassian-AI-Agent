@@ -6,6 +6,7 @@ tend to stop early. The agent therefore plans in passes: a first plan, then up t
 """
 
 import json
+import logging
 import re
 from collections import Counter
 from datetime import UTC, datetime
@@ -14,10 +15,22 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from app.agents.base_agent import LLMAgent
+from app.agents.requirements import requested_count
 from app.core.exceptions import LLMError, LLMQuotaExhaustedError
 from app.core.prompts import load_prompt
-from app.schemas.agents import ExecutionPlan, PlanExpansion, PlannedOperation, PlanningInput
+from app.schemas.agents import (
+    CoverageItem,
+    CoverageMap,
+    ExecutionPlan,
+    PlanExpansion,
+    PlannedOperation,
+    PlanningInput,
+    RequirementChecklist,
+)
 from app.schemas.operations.catalog import get_spec, param_errors
+from app.schemas.operations.rules import automation_problem
+
+logger = logging.getLogger(__name__)
 
 EXPANSION_PASSES = 6
 
@@ -58,6 +71,9 @@ class PlanningAgent(LLMAgent[PlanningInput, ExecutionPlan]):
 
     async def run(self, data: PlanningInput) -> ExecutionPlan:
         context = self._context(data)
+        # The checklist is extracted from the user's own words before planning, so items the
+        # planner forgets are caught instead of silently missing from a "green" run.
+        requirements = await self._requirements(data.request_text)
         sections = split_sections(data.request_text)
         if len(sections) >= MIN_SECTIONS:
             plan = await self._plan_by_section(context, sections, data)
@@ -72,7 +88,11 @@ class PlanningAgent(LLMAgent[PlanningInput, ExecutionPlan]):
                 added = _merge(plan, expansion)
                 if expansion.complete or not added:
                     break
+        if requirements:
+            await self._close_gaps(context, plan, requirements, data.max_operations)
         await self._repair_params(context, plan, data.workspace)
+        _ensure_unique_ids(plan)
+        plan.warnings = tidy_warnings(plan.warnings)
         if len(plan.operations) > data.max_operations:
             dropped = plan.operations[data.max_operations :]
             plan.operations = plan.operations[: data.max_operations]
@@ -83,6 +103,102 @@ class PlanningAgent(LLMAgent[PlanningInput, ExecutionPlan]):
                 + ". Run them as a follow-up command after this plan completes."
             )
         return plan
+
+    async def _requirements(self, request_text: str) -> list[str]:
+        """Every concrete deliverable in the request (empty when the call fails)."""
+        try:
+            found = await self._structured(
+                "## User request\n" + request_text + "\n\n## Task\nList every concrete item "
+                "this request asks to be built or configured, one entry each, in the user's "
+                "order: every named project, workflow, request type, form, field, SLA metric, "
+                "calendar, automation rule, queue, dashboard and each requested gadget, filter, "
+                "space, page/article, link, sample ticket set and permission. Keep the user's "
+                "names. A quantity stays one entry starting with the number (e.g. '10 sample "
+                "tickets covering different request types, priorities and statuses'). Do not "
+                "list meta-instructions (analyse, verify, report, ask for approval).",
+                RequirementChecklist,
+                system=_CHECKLIST_SYSTEM,
+            )
+        except LLMError as exc:
+            logger.warning("Requirement checklist unavailable: %s", exc.message)
+            return []
+        return [r.strip() for r in found.requirements if r.strip()][:150]
+
+    async def _map(
+        self, context: str, plan: ExecutionPlan, requirements: list[str]
+    ) -> list[CoverageItem]:
+        listing = "\n".join(f"{i + 1}. {r}" for i, r in enumerate(requirements))
+        mapped = await self._structured(
+            f"{context}\n\n## Planned steps\n{_plan_listing(plan)}\n\n## Requested items\n"
+            f"{listing}\n\n## Task\nReturn one item per requested item, same order, with the "
+            "exact requested text as `requirement` and `operation_ids` = every planned step that "
+            "delivers it (all of them for a quantity). Set `manual_reason` ONLY when no catalog "
+            "operation can deliver the item at all; if a catalog operation could deliver it but "
+            "no planned step does, leave operation_ids empty and manual_reason null.",
+            CoverageMap,
+        )
+        by_text = {i.requirement.strip().casefold(): i for i in mapped.items}
+        items: list[CoverageItem] = []
+        for n, req in enumerate(requirements):
+            item = by_text.get(req.casefold()) or (
+                mapped.items[n] if n < len(mapped.items) else None
+            )
+            items.append(
+                CoverageItem(
+                    requirement=req,
+                    operation_ids=list(item.operation_ids) if item else [],
+                    manual_reason=item.manual_reason if item else None,
+                )
+            )
+        return items
+
+    async def _close_gaps(
+        self, context: str, plan: ExecutionPlan, requirements: list[str], max_operations: int
+    ) -> None:
+        """Map the checklist to steps; ask for the missing ones (twice at most)."""
+        for _ in range(2):
+            try:
+                coverage = await self._map(context, plan, requirements)
+            except LLMError as exc:
+                logger.warning("Coverage mapping failed: %s", exc.message)
+                return
+            plan.coverage = coverage
+            known = {op.id: op for op in plan.operations}
+            gaps: list[str] = []
+            for item in coverage:
+                ops = [known[i] for i in item.operation_ids if i in known]
+                wanted = requested_count(item.requirement)
+                made = len(
+                    [
+                        o
+                        for o in ops
+                        if not o.operation.split(".", 1)[-1].startswith(
+                            ("transition", "link", "move", "update", "start")
+                        )
+                    ]
+                )
+                if not ops and not item.manual_reason:
+                    gaps.append(f"- {item.requirement}")
+                elif wanted > 1 and made < wanted:
+                    gaps.append(f"- {item.requirement} (planned {made} of {wanted})")
+            room = max_operations - len(plan.operations)
+            if not gaps or room <= 0:
+                return
+            try:
+                expansion = await self._structured(
+                    f"{context}\n\n## Planned steps\n{_plan_listing(plan)}\n\n## Requested "
+                    "items the plan does not fully deliver yet\n" + "\n".join(gaps) + "\n\n"
+                    "## Task\nAdd exactly the steps that deliver these items (one step per item; "
+                    "for a quantity add the missing number). Catalog operations only; for an item "
+                    "no operation can deliver add a coverage entry with manual_reason. Do not "
+                    f"repeat planned steps. Stay within {room} more steps. Set complete=true.",
+                    PlanExpansion,
+                )
+            except LLMError as exc:
+                logger.warning("Gap filling failed: %s", exc.message)
+                return
+            if not _merge(plan, expansion):
+                return
 
     async def _repair_params(
         self, context: str, plan: ExecutionPlan, workspace: dict[str, Any] | None = None
@@ -163,8 +279,15 @@ class PlanningAgent(LLMAgent[PlanningInput, ExecutionPlan]):
         return plan
 
 
-SECTION_HEADING = re.compile(r"^##\s+(.+?)\s*$", re.MULTILINE)
+SECTION_HEADING = re.compile(r"^#{2,4}\s+(.+?)\s*$", re.MULTILINE)  # ##, ### or ####
 MIN_SECTIONS = 3
+
+
+_CHECKLIST_SYSTEM = (
+    "You turn an Atlassian administration request into a precise checklist of deliverables. "
+    "Be exhaustive and literal: one entry per named thing; never merge distinct items, never "
+    "invent items. Reply with JSON only."
+)
 
 
 def split_sections(text: str) -> list[tuple[str, str]]:
@@ -328,14 +451,22 @@ def _expansion_prompt(context: str, plan: ExecutionPlan, max_operations: int) ->
 
 def _renumber(expansion: PlanExpansion, plan: ExecutionPlan) -> PlanExpansion:
     """Give new steps ids after the current plan; rewrite references between new steps."""
-    existing = {op.id for op in plan.operations}
-    next_number = len(plan.operations) + 1
+    used = {op.id for op in plan.operations}
+    # Continue after the highest id, not the step count: deduplication leaves gaps, and
+    # numbering by count would hand out ids that are still in use (s44 twice -> crash).
+    next_number = max((_step_number(i) for i in used), default=0) + 1
     renamed: dict[str, str] = {}
+    new_ids: list[str] = []
     for op in expansion.operations:
-        number = int(op.id[1:])
-        if op.id in existing or number < next_number:
-            renamed[op.id] = f"s{next_number}"
+        number = _step_number(op.id)
+        if op.id in used or number < next_number:
+            new_id = f"s{next_number}"
+            renamed.setdefault(op.id, new_id)  # references point at the first such step
             number = next_number
+        else:
+            new_id = op.id
+        used.add(new_id)
+        new_ids.append(new_id)
         next_number = number + 1
     if not renamed:
         return expansion
@@ -344,19 +475,38 @@ def _renumber(expansion: PlanExpansion, plan: ExecutionPlan) -> PlanExpansion:
     def fix(text: str) -> str:
         return pattern.sub(lambda m: "${" + renamed[m.group(1)] + ".", text)
 
-    for op in expansion.operations:
+    for op, new_id in zip(expansion.operations, new_ids, strict=True):
         op.params = json.loads(fix(json.dumps(op.params)))
         op.depends_on = [renamed.get(d, d) for d in op.depends_on]
-        op.id = renamed.get(op.id, op.id)
+        op.id = new_id
     for item in expansion.coverage:
         item.operation_ids = [renamed.get(i, i) for i in item.operation_ids]
     return expansion
+
+
+def _step_number(step_id: str) -> int:
+    match = re.fullmatch(r"s(\d+)", step_id)
+    return int(match.group(1)) if match else 0
+
+
+def _ensure_unique_ids(plan: ExecutionPlan) -> None:
+    """Last line of defence: every step id must be unique before the plan is stored."""
+    seen: set[str] = set()
+    next_number = max((_step_number(op.id) for op in plan.operations), default=0) + 1
+    for op in plan.operations:
+        if op.id in seen or not re.fullmatch(r"s\d+", op.id):
+            op.id = f"s{next_number}"
+            next_number += 1
+        seen.add(op.id)
 
 
 def _workspace_errors(
     operation: str, params: dict[str, Any], workspace: dict[str, Any]
 ) -> list[str]:
     """Facts the model must respect that a JSON schema cannot express (live site data)."""
+    if operation == "jira.create_automation_rule":
+        problem = automation_problem(params)
+        return [problem] if problem else []
     if operation != "jira.set_issue_type_workflow":
         return []
     key = str(params.get("project_key") or "")
@@ -371,3 +521,69 @@ def _workspace_errors(
             + ", ".join(map(str, types))
         ]
     return []
+
+
+_STOP = {
+    "the",
+    "a",
+    "an",
+    "to",
+    "of",
+    "in",
+    "on",
+    "for",
+    "and",
+    "or",
+    "is",
+    "are",
+    "be",
+    "will",
+    "via",
+    "this",
+    "that",
+    "these",
+    "it",
+    "by",
+    "with",
+    "as",
+    "api",
+    "must",
+    "manually",
+    "project",
+    "jira",
+    "jsm",
+    "settings",
+    "not",
+    "cannot",
+    "can",
+    "only",
+    "please",
+    "you",
+    "your",
+}
+# Generic disclaimers that tell the user nothing (the agent verifies every step itself).
+_NOISE = ("require manual verification", "requires manual verification", "verified manually")
+
+
+def _topic(text: str) -> set[str]:
+    return {w for w in re.findall(r"[a-z0-9]+", text.casefold()) if w not in _STOP and len(w) > 2}
+
+
+def tidy_warnings(warnings: list[str], limit: int = 10) -> list[str]:
+    """Section-wise planning repeats the same limitation in several words: keep one of each."""
+    kept: list[str] = []
+    topics: list[set[str]] = []
+    leads: set[tuple[str, ...]] = set()
+    for w in warnings:
+        text = w.strip()
+        if not text or any(n in text.casefold() for n in _NOISE):
+            continue
+        topic = _topic(text)
+        words = [x for x in re.findall(r"[a-z0-9]+", text.casefold()) if x not in _STOP]
+        lead = tuple(words[:3])
+        if lead in leads or any(topic and len(topic & t) / len(topic | t) >= 0.3 for t in topics):
+            continue
+        kept.append(text)
+        topics.append(topic)
+        leads.add(lead)
+    return kept[:limit]

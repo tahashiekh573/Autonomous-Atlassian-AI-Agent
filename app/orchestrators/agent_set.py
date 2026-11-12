@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 
 from app.agents.base_agent import BaseAgent
+from app.agents.step_repair_agent import StepRepair, StepRepairInput
 from app.agents.verification_agent import VerificationAgent
 from app.schemas.agents import (
     ExecutionPlan,
@@ -29,6 +30,8 @@ class AgentSet:
     integration: OperationAgentT
     verification: VerificationAgent
     response: BaseAgent[ReportInput, ExecutionReport]
+    # Fixes a rejected step's params once (optional so tests can run without an LLM).
+    repair: BaseAgent[StepRepairInput, StepRepair] | None = None
 
     def for_operation(self, operation: str) -> OperationAgentT:
         spec = get_spec(operation)

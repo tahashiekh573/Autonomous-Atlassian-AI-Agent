@@ -81,7 +81,16 @@ export interface RunSummary {
   finished_at: string | null;
 }
 
+export interface RequirementStatus {
+  requirement: string;
+  status: "done" | "partial" | "failed" | "manual" | "missing";
+  operation_ids: string[];
+  note: string;
+}
+
 export interface Report {
+  requirements?: RequirementStatus[];
+  completion_percent?: number | null;
   summary: string;
   created_resources: Resource[];
   completed: number;

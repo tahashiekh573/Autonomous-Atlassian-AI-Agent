@@ -10,7 +10,8 @@ from typing import Any, TypedDict
 from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel
 
-from app.core.exceptions import OperationInputError
+from app.agents.step_repair_agent import StepRepairInput
+from app.core.exceptions import LLMError, OperationInputError
 from app.orchestrators.agent_set import AgentSet
 from app.orchestrators.events import RunEventSink
 from app.orchestrators.references import resolve
@@ -22,11 +23,12 @@ from app.schemas.agents import (
     OperationRequest,
     OperationStatus,
     OperationSummary,
+    PlannedOperation,
     ReportInput,
     VerificationRequest,
     VerificationResult,
 )
-from app.schemas.operations.catalog import get_spec
+from app.schemas.operations.catalog import get_spec, param_errors
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +56,10 @@ class _State(TypedDict, total=False):
     resolved: dict[str, dict[str, Any]]
     current: str | None
     report: ExecutionReport
+
+
+# Failures caused by what was sent (bad JQL, wrong names); not permissions or outages.
+_REPAIRABLE = {"operation_invalid_input", "atlassian_api_error", "validation_error"}
 
 
 class ExecutionOrchestrator:
@@ -188,6 +194,9 @@ class ExecutionOrchestrator:
                 params=params,
             )
         )
+        if not outcome.succeeded and outcome.error_code in _REPAIRABLE:
+            outcome, params = await self._repair_and_retry(state, op, params, outcome)
+            state["resolved"][op_id] = params
         state["outcomes"][op_id] = outcome
         if not outcome.succeeded:
             await self._set(
@@ -199,6 +208,46 @@ class ExecutionOrchestrator:
             "outcomes": state["outcomes"],
             "resolved": state["resolved"],
         }
+
+    async def _repair_and_retry(
+        self,
+        state: _State,
+        op: PlannedOperation,
+        params: dict[str, Any],
+        outcome: OperationOutcome,
+    ) -> tuple[OperationOutcome, dict[str, Any]]:
+        """One corrected attempt with the error Jira gave; the original failure otherwise."""
+        if self._agents.repair is None:
+            return outcome, params
+        try:
+            fix = await self._agents.repair.run(
+                StepRepairInput(
+                    instruction=state["instruction"],
+                    operation=op.operation,
+                    description=op.description,
+                    params=params,
+                    error=outcome.message,
+                )
+            )
+        except LLMError:
+            return outcome, params
+        spec = get_spec(op.operation)
+        if not fix.fixable or fix.params == params or spec is None:
+            return outcome, params
+        if param_errors(spec.params, fix.params):
+            return outcome, params
+        await self._sink.run_progress(
+            state["run_id"], current_agent="step_repair_agent", message=f"{op.id}: auto-correcting"
+        )
+        retry = await self._agents.for_operation(op.operation).run(
+            OperationRequest(
+                run_id=state["run_id"], op_id=op.id, operation=op.operation, params=fix.params
+            )
+        )
+        if not retry.succeeded:
+            return outcome, params
+        retry.message = f"{retry.message} (auto-corrected: {fix.explanation})"[:2000]
+        return retry, fix.params
 
     async def _verify(self, state: _State) -> _State:
         op_id = str(state["current"])
@@ -262,6 +311,7 @@ class ExecutionOrchestrator:
                 language=state["language"],
                 plan_summary=state["plan"].summary,
                 operations=summaries,
+                coverage=state["plan"].coverage,
             )
         )
         await self._sink.run_progress(state["run_id"], current_agent=None, message="Done")

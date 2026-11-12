@@ -30,6 +30,17 @@ class JiraProjectsMixin:
         )
         return body
 
+    async def project_statuses(self, key_or_id: str) -> dict[str, str]:
+        """Status name (lower-case) -> status id, across all issue types of the project."""
+        body = await self._http.request(
+            "GET", f"/rest/api/3/project/{seg(key_or_id)}/statuses", service=SERVICE
+        )
+        found: dict[str, str] = {}
+        for issue_type in body or []:
+            for status in issue_type.get("statuses") or []:
+                found.setdefault(str(status.get("name", "")).casefold(), str(status.get("id")))
+        return found
+
     async def find_project(self, key_or_id: str) -> dict[str, Any] | None:
         try:
             return await self.get_project(key_or_id)
