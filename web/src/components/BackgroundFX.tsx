@@ -1,4 +1,5 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { fxEnabled, onFxChange } from "../fx";
 
 /**
  * Animated backdrop: aurora colour blobs, a slowly panning grid and a canvas "constellation"
@@ -23,13 +24,16 @@ function rgb(hex: string): [number, number, number] {
 }
 
 export function BackgroundFX() {
+  const [animate, setAnimate] = useState(fxEnabled());
+  useEffect(() => onFxChange(setAnimate), []);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext("2d");
     if (!canvas || !ctx) return;
-    const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    // animations off (weak machine, user choice or OS setting): draw one still frame
+    const reduced = !animate || (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false);
     const touch = window.matchMedia?.("(pointer: coarse)").matches ?? false;
 
     let w = 0, h = 0, dpr = 1, raf = 0, frame = 0;
@@ -47,7 +51,7 @@ export function BackgroundFX() {
     };
 
     const resize = () => {
-      dpr = Math.min(window.devicePixelRatio || 1, 2);
+      dpr = 1; // soft dots and hairlines look the same at 1x and cost 4x less on retina screens
       w = window.innerWidth;
       h = window.innerHeight;
       canvas.width = Math.round(w * dpr);
@@ -55,7 +59,7 @@ export function BackgroundFX() {
       canvas.style.width = `${w}px`;
       canvas.style.height = `${h}px`;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      const target = Math.min(touch ? 45 : 110, Math.round((w * h) / 13000));
+      const target = Math.min(touch ? 30 : 64, Math.round((w * h) / 20000));
       while (particles.length < target) {
         particles.push({
           x: Math.random() * w, y: Math.random() * h,
@@ -72,7 +76,14 @@ export function BackgroundFX() {
       return `rgba(${Math.round(r1 + (r2 - r1) * t)}, ${Math.round(g1 + (g2 - g1) * t)}, ${Math.round(b1 + (b2 - b1) * t)}, ${a})`;
     };
 
-    const draw = () => {
+    let last = 0;
+    const draw = (now = performance.now()) => {
+      // ~30 fps is plenty for a slow backdrop and halves its CPU/GPU cost
+      if (!reduced && now - last < 32) {
+        raf = requestAnimationFrame(draw);
+        return;
+      }
+      last = now;
       frame++;
       if (frame % 90 === 1) readTheme();
       ctx.clearRect(0, 0, w, h);
@@ -142,14 +153,10 @@ export function BackgroundFX() {
       for (const p of particles) {
         const tw = 0.55 + Math.sin(p.tw) * 0.45;
         ctx.fillStyle = color(p, (0.5 + tw * 0.5) * baseA);
-        ctx.shadowColor = color(p, 0.8 * baseA);
-        ctx.shadowBlur = 8;
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.r * (0.8 + tw * 0.4), 0, Math.PI * 2);
         ctx.fill();
       }
-
-      ctx.shadowBlur = 0;
 
       // shooting stars
       if (!reduced && Math.random() < 0.004 && meteors.length < 2) {
@@ -216,7 +223,7 @@ export function BackgroundFX() {
       document.removeEventListener("visibilitychange", onVisibility);
       themeWatch.disconnect();
     };
-  }, []);
+  }, [animate]);
 
   return (
     <div className="bg-fx" aria-hidden="true">

@@ -72,7 +72,7 @@ class PlanningAgent(LLMAgent[PlanningInput, ExecutionPlan]):
                 added = _merge(plan, expansion)
                 if expansion.complete or not added:
                     break
-        await self._repair_params(context, plan)
+        await self._repair_params(context, plan, data.workspace)
         if len(plan.operations) > data.max_operations:
             dropped = plan.operations[data.max_operations :]
             plan.operations = plan.operations[: data.max_operations]
@@ -84,7 +84,9 @@ class PlanningAgent(LLMAgent[PlanningInput, ExecutionPlan]):
             )
         return plan
 
-    async def _repair_params(self, context: str, plan: ExecutionPlan) -> None:
+    async def _repair_params(
+        self, context: str, plan: ExecutionPlan, workspace: dict[str, Any] | None = None
+    ) -> None:
         """One focused call to fix steps whose params fail validation (e.g. a bad colour code),
         so a single typo does not block a 60-step plan."""
         broken: list[str] = []
@@ -92,7 +94,9 @@ class PlanningAgent(LLMAgent[PlanningInput, ExecutionPlan]):
             spec = get_spec(op.operation)
             if spec is None or not spec.supported:
                 continue
-            errors = param_errors(spec.params, op.params)
+            errors = param_errors(spec.params, op.params) + _workspace_errors(
+                op.operation, op.params, workspace or {}
+            )
             if errors:
                 schema = json.dumps(spec.params.model_json_schema(), ensure_ascii=False)[:1500]
                 broken.append(
@@ -110,7 +114,14 @@ class PlanningAgent(LLMAgent[PlanningInput, ExecutionPlan]):
         by_id = {op.id: op for op in plan.operations}
         for fix in fixes.fixes:
             if fix.id in by_id:
-                by_id[fix.id].params = fix.params
+                op = by_id[fix.id]
+                # keep the human description in step with a renamed target (e.g. issue type)
+                for field in ("issue_type", "project_key", "name"):
+                    old, new = op.params.get(field), fix.params.get(field)
+                    if isinstance(old, str) and isinstance(new, str) and old and old != new:
+                        op.description = op.description.replace(old, new)
+                op.params = fix.params
+        _drop_duplicates(plan)
 
     async def _plan_by_section(
         self, context: str, sections: list[tuple[str, str]], data: PlanningInput
@@ -173,7 +184,9 @@ def split_sections(text: str) -> list[tuple[str, str]]:
 def _natural_key(op: PlannedOperation) -> tuple[str, str, str] | None:
     """What makes two planned steps "the same thing" (same operation, scope and name)."""
     p = op.params
-    label = p.get("name") or p.get("summary") or p.get("title") or p.get("key")
+    label = (
+        p.get("name") or p.get("summary") or p.get("title") or p.get("key") or p.get("issue_type")
+    )
     if not isinstance(label, str) or not label.strip():
         return None
     scope = p.get("project_key") or p.get("space_key") or p.get("service_desk") or ""
@@ -208,6 +221,32 @@ def _merge(plan: ExecutionPlan, expansion: PlanExpansion) -> int:
     plan.coverage.extend(c for c in added.coverage if c.requirement.casefold() not in known)
     plan.warnings.extend(w for w in added.warnings if w not in plan.warnings)
     return len(keep)
+
+
+def _drop_duplicates(plan: ExecutionPlan) -> None:
+    """After repairs two steps can become identical (e.g. both fixed to the same issue type)."""
+    seen: dict[tuple[str, str, str], str] = {}
+    duplicates: dict[str, str] = {}
+    keep: list[PlannedOperation] = []
+    for op in plan.operations:
+        key = _natural_key(op)
+        if key and key in seen:
+            duplicates[op.id] = seen[key]
+            continue
+        if key:
+            seen[key] = op.id
+        keep.append(op)
+    if not duplicates:
+        return
+    pattern = re.compile(r"\$\{(" + "|".join(map(re.escape, duplicates)) + r")\.")
+    for op in keep:
+        op.params = json.loads(
+            pattern.sub(lambda m: "${" + duplicates[m.group(1)] + ".", json.dumps(op.params))
+        )
+        op.depends_on = sorted({duplicates.get(d, d) for d in op.depends_on} - {op.id})
+    for item in plan.coverage:
+        item.operation_ids = sorted({duplicates.get(i, i) for i in item.operation_ids})
+    plan.operations = keep
 
 
 def _plan_listing(plan: ExecutionPlan) -> str:
@@ -312,3 +351,23 @@ def _renumber(expansion: PlanExpansion, plan: ExecutionPlan) -> PlanExpansion:
     for item in expansion.coverage:
         item.operation_ids = [renamed.get(i, i) for i in item.operation_ids]
     return expansion
+
+
+def _workspace_errors(
+    operation: str, params: dict[str, Any], workspace: dict[str, Any]
+) -> list[str]:
+    """Facts the model must respect that a JSON schema cannot express (live site data)."""
+    if operation != "jira.set_issue_type_workflow":
+        return []
+    key = str(params.get("project_key") or "")
+    project = next(
+        (p for p in workspace.get("jira_projects") or [] if str(p.get("key")) == key), None
+    )
+    types = (project or {}).get("issue_types") or []
+    wanted = str(params.get("issue_type") or "")
+    if types and wanted.casefold() not in {str(t).casefold() for t in types}:
+        return [
+            f"issue_type '{wanted}' does not exist in {key}; it must be exactly one of: "
+            + ", ".join(map(str, types))
+        ]
+    return []

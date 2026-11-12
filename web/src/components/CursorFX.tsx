@@ -1,4 +1,5 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { fxEnabled, onFxChange } from "../fx";
 
 /**
  * Pointer effects (the native mouse cursor is kept): a soft spotlight that follows the pointer,
@@ -9,12 +10,14 @@ const SPOT = ".card, .op:not(.failed)";
 const MAGNETIC = "button.primary, .icon-btn, .mic, .brand-logo, .chip";
 
 export function CursorFX() {
+  const [animate, setAnimate] = useState(fxEnabled());
+  useEffect(() => onFxChange(setAnimate), []);
   const glow = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const fine = window.matchMedia?.("(pointer: fine)").matches;
     const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    if (!fine || reduced) return;
+    if (!fine || reduced || !animate) return;
     const root = document.documentElement;
     root.classList.add("fx-cursor");
 
@@ -58,6 +61,7 @@ export function CursorFX() {
         m.style.transform = `translate(${dx.toFixed(1)}px, ${dy.toFixed(1)}px)`;
         magnet = m;
       }
+      wake();
     };
 
     const down = (e: PointerEvent) => {
@@ -70,13 +74,17 @@ export function CursorFX() {
     };
     const leave = () => { root.classList.remove("fx-visible"); release(); };
 
+    // The spotlight eases towards the pointer and the loop stops once it has caught up,
+    // so an idle page does no per-frame work.
     const tick = () => {
-      gx += (x - gx) * 0.07;
-      gy += (y - gy) * 0.07;
+      gx += (x - gx) * 0.12;
+      gy += (y - gy) * 0.12;
       if (glow.current) glow.current.style.transform = `translate3d(${gx}px, ${gy}px, 0)`;
-      raf = requestAnimationFrame(tick);
+      raf = Math.abs(x - gx) + Math.abs(y - gy) > 0.5 ? requestAnimationFrame(tick) : 0;
     };
-    raf = requestAnimationFrame(tick);
+    const wake = () => {
+      if (!raf) raf = requestAnimationFrame(tick);
+    };
 
     window.addEventListener("pointermove", move, { passive: true });
     window.addEventListener("pointerdown", down, { passive: true });
@@ -89,7 +97,7 @@ export function CursorFX() {
       release();
       root.classList.remove("fx-cursor", "fx-visible");
     };
-  }, []);
+  }, [animate]);
 
   return (
     <div aria-hidden="true">

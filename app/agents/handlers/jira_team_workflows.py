@@ -9,6 +9,7 @@ status (same category preferred) - issues in it simply carry the new name - and 
 extra statuses are added. Old statuses that cannot be reused stay in the workflow and are reported.
 """
 
+import re
 import uuid
 from typing import Any
 
@@ -82,6 +83,13 @@ async def _shared_refs(
     return shared
 
 
+_FILLER = {"a", "an", "the", "in", "to", "for", "of", "on", "under", "by", "is"}
+
+
+def _words(name: str) -> set[str]:
+    return {w for w in re.findall(r"[a-z0-9]+", name.casefold()) if w not in _FILLER}
+
+
 def _transition(
     tid: int, name: str, to_ref: str, from_refs: list[str], **extra: Any
 ) -> dict[str, Any]:
@@ -137,8 +145,12 @@ def _build(
                 }
             )
         else:
+            # prefer a similarly named status ("Under review" -> "In Review"), then one of the
+            # same category; never an unrelated one (e.g. Done must not become In Progress)
+            similar = [r for r in free if _words(str(by_ref[r]["name"])) & _words(s.name)]
             same = [r for r in free if by_ref[r].get("statusCategory") == s.category]
-            pick = same[0] if same else None  # never turn e.g. Done into In Progress
+            candidates = similar or same
+            pick: str | None = candidates[0] if candidates else None
             if pick is not None:  # rename an old status in place - its issues follow
                 free.remove(pick)
                 ref = pick

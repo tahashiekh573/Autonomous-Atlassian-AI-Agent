@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, ApiError, setToken } from "./api";
 import { CommandCenter } from "./components/CommandCenter";
 import { Icon, type IconName } from "./components/Icons";
+import { fxEnabled, setFx } from "./fx";
 import { History } from "./components/History";
 import { Login } from "./components/Login";
 import { ProductSection, type Product } from "./components/ProductSection";
@@ -63,6 +64,8 @@ export default function App() {
     try { if (theme) localStorage.setItem(THEME_KEY, theme); } catch { /* optional */ }
   }, [theme]);
   const toggleTheme = () => setTheme(isDark(theme) ? "light" : "dark");
+  const [motion, setMotion] = useState(fxEnabled());
+  const toggleMotion = () => { setFx(!motion); setMotion(!motion); };
 
   const checkAuth = useCallback(() => {
     setBootError(null);
@@ -153,6 +156,11 @@ export default function App() {
           <div className="user-chip">
             <span className="avatar" aria-hidden="true">{(user.display_name || "?").slice(0, 1).toUpperCase()}</span>
             <span className="user-meta"><b>{user.display_name}</b><small>{user.role}</small></span>
+            <button className={`icon-btn ${motion ? "" : "off"}`} onClick={toggleMotion}
+              title={motion ? "Animations on (click to turn off)" : "Animations off (click to turn on)"}
+              aria-label="Toggle background animations" aria-pressed={motion}>
+              <Icon name="spark" size={16} />
+            </button>
             <button className="icon-btn" onClick={toggleTheme} title="Toggle light / dark" aria-label="Toggle light or dark theme">
               <Icon name={isDark(theme) ? "sun" : "moon"} size={16} />
             </button>

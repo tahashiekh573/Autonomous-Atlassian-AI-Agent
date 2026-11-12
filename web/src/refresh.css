@@ -204,3 +204,46 @@ svg { display: block; flex: none; }
 .live-bar .pulse.idle { animation: none; opacity: .6; }
 .live-text { flex: 1; min-width: 0; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .live-text a { font-family: "JetBrains Mono", Consolas, monospace; font-size: 12px; }
+
+/* =====================================================================
+   Layout + performance fixes
+   ===================================================================== */
+/* grid children may shrink: long unbreakable text must never widen a card past its border */
+.stack { grid-template-columns: minmax(0, 1fr); }
+.stack > *, .grid-cmd > *, .live-bar, .row { min-width: 0; }
+.bubble { overflow-wrap: anywhere; }
+.live-text { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+
+/* blur behind every card forces the browser to re-render the animated background under each one;
+   opaque-enough surfaces look the same and cost nothing */
+.card { backdrop-filter: none; -webkit-backdrop-filter: none; }
+:root { --surface: rgba(255, 255, 255, 0.93); }
+:root[data-theme="dark"] { --surface: rgba(18, 23, 37, 0.94); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --surface: rgba(18, 23, 37, 0.94); } }
+.sidebar { backdrop-filter: none; -webkit-backdrop-filter: none; background: var(--surface); }
+.hero-stat, .eyebrow { backdrop-filter: none; -webkit-backdrop-filter: none; }
+
+/* animate only compositor-friendly properties (transform/opacity) */
+.hero { animation: fadeUp .45s var(--ease) both; background-size: 100% 100%; }
+.bg-fx .aurora span { animation-name: drift; animation-duration: 30s; will-change: transform; filter: blur(70px); }
+.glow-card::before { animation: none; background: linear-gradient(135deg, #5b74ff, #9f6bff 55%, #2dd4bf); opacity: .7; }
+.agent-node.active::after, .agent-node.done::after { animation: none; background: var(--accent-grad); }
+.bg-canvas, .bg-grid, .fx-glow { will-change: transform; contain: strict; }
+
+/* aurora without filter: blur(70px) on viewport-sized moving layers was the main frame cost;
+   a radial gradient gives the same soft blob for (almost) free */
+.bg-fx .aurora span { filter: none !important; opacity: calc(var(--blob-o) * 1.6); }
+.bg-fx .aurora span:nth-child(1) { background: radial-gradient(closest-side, var(--blob-a), transparent); }
+.bg-fx .aurora span:nth-child(2) { background: radial-gradient(closest-side, var(--blob-b), transparent); }
+.bg-fx .aurora span:nth-child(3) { background: radial-gradient(closest-side, var(--blob-c), transparent); opacity: var(--blob-o); }
+/* a static grid reads the same; panning a full-screen masked layer repaints it every frame */
+.bg-grid { animation: none; inset: 0; }
+
+/* animations switched off (fx.ts): still backdrop, no looping motion */
+.fx-off .bg-fx .aurora span, .fx-off .orbit-ring, .fx-off .orbit-node svg, .fx-off .orbit-core,
+.fx-off .brand-logo, .fx-off .empty .big { animation: none !important; }
+.fx-off .fx-glow { display: none; }
+.icon-btn.off { opacity: .55; }
+
+/* use wide screens: plan and command side by side with more room */
+.main { max-width: 1680px; }

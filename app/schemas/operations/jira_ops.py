@@ -473,8 +473,10 @@ SPECS: list[OperationSpec] = [
         "jira",
         "modify",
         "TEAM-MANAGED projects (Jira or JSM): set the workflow of one existing issue type - its "
-        "statuses, initial status and named transitions (reopen etc.). Existing issues in removed "
-        "statuses are moved to a status of the same category. Use instead of create_workflow / "
+        "statuses, initial status and named transitions (reopen etc.). Statuses are never "
+        "removed (Jira does not allow it via the API): an old status of the same category used "
+        "only by this issue type is renamed (its issues keep their place); other old statuses stay "
+        "in the workflow and are reported. Use instead of create_workflow / "
         "configure_workflow_scheme / configure_issue_types, which only work for company-managed "
         "projects.",
         SetIssueTypeWorkflowParams,

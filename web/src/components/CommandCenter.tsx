@@ -26,6 +26,15 @@ interface Props {
   speak: (text: string) => void;
 }
 
+/** Light markdown for chat bubbles: **bold** only (everything else stays plain text). */
+function rich(text: string) {
+  return text.split(/(\*\*[^*\n]+\*\*)/g).map((part, i) =>
+    part.startsWith("**") && part.endsWith("**") && part.length > 4
+      ? <strong key={i}>{part.slice(2, -2)}</strong>
+      : part,
+  );
+}
+
 const MAX_CHARS = 50000; // matches MAX_COMMAND_CHARS in app/schemas/run.py
 
 export function CommandCenter({ connection, role, runId, draft, setDraft, onRunId, speak }: Props) {
@@ -95,7 +104,7 @@ export function CommandCenter({ connection, role, runId, draft, setDraft, onRunI
 
         <div className="chat" aria-live="polite">
           {(run?.conversation ?? []).map((t, n) => (
-            <div key={n} className={`bubble ${t.role}`}>{t.content}</div>
+            <div key={n} className={`bubble ${t.role}`}>{rich(t.content)}</div>
           ))}
           {!run && <div className="muted">Describe what to build in English, Urdu or Roman Urdu — by typing or with the microphone. You will review the plan before anything changes.</div>}
         </div>
